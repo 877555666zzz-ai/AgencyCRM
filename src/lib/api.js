@@ -1,8 +1,8 @@
 // ============================================================================
 // api.js — мультитенантная версия (NEWPJ). ШАГ A.
 // Вход + профиль + компания + проверка подписки.
-// loadDb/persistDb/integrations пока ЗАГЛУШКИ (чтобы старый CRMApp не падал).
-// Реальную загрузку данных под новую схему подключим следующим шагом.
+// loadDb грузит текущего пользователя (чтобы CRMApp не падал).
+// Остальные данные (лиды/проекты/стадии) подключим следующим шагом.
 // ============================================================================
 import { supabase } from "./supabase";
 
@@ -30,7 +30,6 @@ export async function loadContext() {
     return { profile: null, company: null, blocked: false, reason: "no-profile", authUser };
   }
 
-  // суперадмин — без компании, доступ всегда
   if (profile.role === "superadmin") {
     return { profile, company: null, blocked: false, reason: null, authUser, isSuperadmin: true };
   }
@@ -58,28 +57,54 @@ export async function loadContext() {
 }
 
 // ============================================================================
-// ЗАГЛУШКИ совместимости со старым CRMApp (Шаг A).
-// Возвращают пустые данные, чтобы интерфейс не падал.
-// На следующем шаге заменим на реальную загрузку под новую схему.
+// loadDb — ШАГ A: грузим только текущего пользователя в users.
+// Роль маппим в старые значения, чтобы навигация CRMApp работала:
+//   superadmin/admin -> admin (видит все разделы)
+//   остальные -> sales
+// Лиды/проекты/прочее пока пустые (подключим в Шаге B).
 // ============================================================================
-const EMPTY_DB = {
-  users: [], leads: [], projects: [], respondents: [],
-  notes: {}, tasks: [], reminders: [], __me: null,
-};
-
 export async function loadDb() {
   const { data: au } = await supabase.auth.getUser();
-  if (!au?.user) return null;
-  return { ...EMPTY_DB, __me: au.user.id };
+  const authUser = au?.user;
+  if (!authUser) return null;
+
+  const { data: profile } = await supabase
+    .from("profiles").select("*").eq("id", authUser.id).single();
+
+  // маппинг новой роли в старую систему навигации InsightLab
+  const mapRole = (r) => {
+    if (r === "superadmin" || r === "admin") return "admin";
+    if (r === "manager") return "sales";
+    return "sales";
+  };
+
+  const me = profile ? {
+    id: profile.id,
+    name: profile.name || profile.email || "Пользователь",
+    role: mapRole(profile.role),
+    telegram_id: "",
+    email: profile.email || "",
+    active: profile.active !== false,
+  } : {
+    id: authUser.id, name: authUser.email || "Пользователь",
+    role: "admin", telegram_id: "", email: authUser.email || "", active: true,
+  };
+
+  return {
+    users: [me],
+    leads: [], projects: [], respondents: [],
+    notes: {}, tasks: [], reminders: [],
+    __me: me.id,
+  };
 }
 
 export async function persistDb(_next, _prev) {
-  // Шаг A: запись отключена (схема ещё не подключена). Ничего не делаем.
+  // Шаг A: запись отключена. Подключим в Шаге B.
 }
 
 export async function resetDb() { /* noop */ }
 
-// integrations — заглушки (старый раздел «Интеграции» не должен падать)
+// integrations — заглушки (раздел «Интеграции» не должен падать)
 export const integrations = {
   listTokens: async () => [],
   createToken: async () => { throw new Error("Интеграции подключим на следующем шаге"); },
