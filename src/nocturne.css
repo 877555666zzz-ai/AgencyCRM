@@ -1,0 +1,320 @@
+/* ============================================================================
+   InsightLab — dual-theme token system  (Nocturne dark  +  Daylight light)
+   Import ONCE, e.g. in src/main.jsx:   import "./nocturne.css";
+   ----------------------------------------------------------------------------
+   ARCHITECTURE
+   • Every color in the app flows through CSS variables named --c-*.
+   • The `C` design-token object in InsightLabCRM.jsx maps 1:1 onto these
+     (C.bg -> var(--c-bg), C.text -> var(--c-text), ...), so switching the
+     [data-theme] attribute on <html> re-themes the WHOLE app instantly —
+     every screen, card, modal, toast, chart container.
+   • Set <html data-theme="dark"> or "light". Default below = dark.
+   ============================================================================ */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
+/* ---------- DARK (Nocturne) — default ---------- */
+:root,
+[data-theme="dark"]{
+  color-scheme: dark;
+  --c-bg:#0B1220;
+  --c-bg-grad: radial-gradient(120% 120% at 50% -10%, #14213a 0%, #0E1525 42%, #0B1220 100%);
+  --c-text:#E6EDF5;
+  --c-muted:#9DABC0;
+  --c-faint:#6B7A91;
+  --c-blue:#8B8BFF;
+  --c-blue-dark:#6E6EF0;
+  --c-blue-light:rgba(139,139,255,0.18);   /* highlight wash */
+  --c-blue-soft:rgba(139,139,255,0.16);
+  --c-border:rgba(255,255,255,0.08);
+  --c-border-strong:rgba(255,255,255,0.14);
+  --c-surface:#151D2D;                     /* solid card */
+  --c-panel:#0F1726;                       /* recessed panel */
+  --c-green:#3FB97F;
+  --c-red:#E5586E;
+  --c-amber:#E0A93B;
+  --c-indigo:#8B8BFF;                       /* Lumen indigo accent (dark) */
+  --c-pill-bg:#F4F5FA;                       /* primary pill = near-white on dark */
+  --c-pill-ink:#0A0A0B;
+  --c-glow:rgba(139,139,255,0.45);
+  --c-shadow:0 1px 2px rgba(0,0,0,0.30), 0 4px 14px -6px rgba(0,0,0,0.50);
+  --c-shadow-md:0 12px 34px -12px rgba(0,0,0,0.62), 0 2px 8px rgba(0,0,0,0.35);
+  --c-shadow-lg:0 30px 80px -24px rgba(0,0,0,0.72);
+  --c-card-sheen:linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0) 42%);
+  --c-ring:rgba(139,139,255,0.18);          /* focus ring wash */
+  /* nav/header glass (denser, for sticky bars) */
+  --c-glass:rgba(18,26,40,0.72);
+  --c-glass-border:rgba(255,255,255,0.08);
+  --c-glass-blur:18px;
+  --c-on-accent:#04101c;                   /* text on blue/green buttons */
+  /* ---- TRUE GLASS (transparent cards on colored blobs) ---- */
+  --g-card:rgba(255,255,255,0.10);         /* card fill — frost with presence */
+  --g-strong:rgba(20,28,44,0.62);          /* denser pad under dense text */
+  --g-border:rgba(255,255,255,0.16);       /* glass rim */
+  --g-rim-top:rgba(255,255,255,0.60);
+  --g-highlight:inset 0 1px 0 rgba(255,255,255,0.12);
+  --g-blur:22px;
+  --g-shadow:0 14px 40px -8px rgba(0,0,0,0.50);
+  --g-shadow-hi:0 24px 60px -12px rgba(0,0,0,0.62);
+  --g-col:rgba(255,255,255,0.045);         /* kanban column tint (softer) */
+  --g-col-border:rgba(255,255,255,0.08);
+  --g-col-over:rgba(120,110,255,0.18);     /* column drop-hover */
+  /* vivid colored mesh blobs — refract through the glass */
+  --c-blobs:
+    radial-gradient(44% 46% at 4% 6%,   rgba(99,91,255,0.55),  transparent 70%),
+    radial-gradient(40% 42% at 98% 8%,  rgba(72,120,240,0.42), transparent 70%),
+    radial-gradient(48% 50% at 88% 94%, rgba(150,110,245,0.50),transparent 72%),
+    radial-gradient(44% 46% at 6% 96%,  rgba(40,180,190,0.34), transparent 72%),
+    radial-gradient(42% 44% at 54% 50%, rgba(110,100,255,0.18),transparent 68%);
+  --c-overlay:rgba(6,10,18,0.62);          /* modal backdrop */
+  --c-hint-bg:rgba(224,169,59,0.10);       /* interviewer hint box */
+  --c-hint-bd:rgba(224,169,59,0.28);
+  --c-hint-tx:#e7c98a;
+}
+
+/* ---------- LIGHT (Daylight) — original brand palette ---------- */
+[data-theme="light"]{
+  color-scheme: light;
+  --c-bg:#E7EAF4;
+  --c-bg-grad: linear-gradient(157deg, #ECEEF8 0%, #E5E8F4 50%, #DFE3F1 100%);
+  --c-text:#1C2433;
+  --c-muted:#65728A;
+  --c-faint:#94A1B4;
+  --c-blue:#5B5BFF;
+  --c-blue-dark:#4A43DB;
+  --c-blue-light:#ECEBFF;
+  --c-blue-soft:#F1F0FF;
+  --c-border:#E7ECF3;
+  --c-border-strong:#D7DEE9;
+  --c-surface:#FFFFFF;
+  --c-panel:#F3F6FB;
+  --c-green:#27AE60;
+  --c-red:#EB5757;
+  --c-amber:#F2994A;
+  --c-indigo:#5B5BFF;                       /* Lumen indigo accent (light) */
+  --c-pill-bg:#0A0A0B;                       /* primary pill = black on light */
+  --c-pill-ink:#FFFFFF;
+  --c-glow:rgba(91,91,255,0.30);
+  --c-shadow:0 1px 2px rgba(28,46,82,0.05), 0 4px 14px -6px rgba(28,46,82,0.10);
+  --c-shadow-md:0 14px 34px -14px rgba(28,46,82,0.18), 0 4px 12px -6px rgba(28,46,82,0.08);
+  --c-shadow-lg:0 30px 70px -26px rgba(28,46,82,0.28);
+  --c-card-sheen:linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0) 40%);
+  --c-ring:rgba(91,91,255,0.16);
+  /* nav/header glass (denser, for sticky bars) */
+  --c-glass:rgba(255,255,255,0.72);
+  --c-glass-border:rgba(45,80,120,0.10);
+  --c-glass-blur:14px;
+  --c-on-accent:#FFFFFF;
+  /* ---- TRUE GLASS (transparent cards on colored blobs) ---- */
+  --g-card:rgba(255,255,255,0.55);         /* premium frost — crisp text, hint of color */
+  --g-strong:rgba(255,255,255,0.74);       /* denser pad under dense text */
+  --g-border:rgba(255,255,255,0.75);       /* bright glass rim */
+  --g-rim-top:rgba(255,255,255,0.98);
+  --g-highlight:inset 0 1px 0 rgba(255,255,255,0.72);
+  --g-blur:20px;
+  --g-shadow:0 12px 36px -10px rgba(40,44,98,0.16);
+  --g-shadow-hi:0 22px 56px -14px rgba(40,44,98,0.24);
+  --g-col:rgba(255,255,255,0.38);          /* frosted column — clearly visible */
+  --g-col-border:rgba(255,255,255,0.55);
+  --g-col-over:rgba(91,91,255,0.14);       /* column drop-hover */
+  /* vivid pastel mesh blobs — refract through the glass */
+  --c-blobs:
+    radial-gradient(42% 46% at 0% 0%,    rgba(99,91,255,0.55),  transparent 68%),
+    radial-gradient(40% 44% at 100% 2%,  rgba(82,150,255,0.48), transparent 68%),
+    radial-gradient(48% 52% at 90% 100%, rgba(159,122,234,0.52),transparent 70%),
+    radial-gradient(46% 50% at 2% 100%,  rgba(56,196,200,0.40), transparent 70%),
+    radial-gradient(62% 62% at 50% 44%,  rgba(120,110,255,0.16),transparent 64%);
+  --c-overlay:rgba(45,45,45,0.42);
+  --c-hint-bg:#FFF6E9;
+  --c-hint-bd:#F4D9AE;
+  --c-hint-tx:#9A6A1E;
+}
+
+/* ---------- shared scale (theme-independent) ---------- */
+:root{
+  --r-card:20px;     /* big soft cards */
+  --r-tile:18px;     /* kpi / kanban column */
+  --r-ctl:12px;      /* buttons, inputs */
+  --r-pill:999px;
+  --sp:8px;
+}
+
+*{box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{
+  margin:0; font-family:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  color:var(--c-text);
+  background:var(--c-bg-grad);
+  background-attachment:fixed;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+}
+/* ----------------------------------------------------------------------------
+   Fixed colored MESH layer. This is what the glass refracts. It sits behind the
+   app (#root is z-index:1) but is sampled by every backdrop-filter above it, so
+   cards/columns show real color through them. Oversized + blurred = buttery mesh.
+   ---------------------------------------------------------------------------- */
+body::before{
+  content:"";
+  position:fixed; inset:-18%;
+  z-index:0;
+  background:var(--c-blobs);
+  filter:blur(28px) saturate(118%);
+  pointer-events:none;
+}
+#root{ position:relative; z-index:1; min-height:100vh; }
+
+/* ============================================================================
+   TRUE GLASS card — transparent, strong backdrop blur, bright rim + top sheen.
+   Use for kanban cards & big panels (analytics / calendar / users / settings).
+   Text stays near-solid for legibility; .glass-strong adds a denser sub-layer
+   under heavy text blocks if a card sits over a very busy blob area.
+   ============================================================================ */
+.glass-card{
+  position:relative;
+  background:var(--g-card);
+  backdrop-filter:blur(var(--g-blur)) saturate(150%);
+  -webkit-backdrop-filter:blur(var(--g-blur)) saturate(150%);
+  border:1px solid var(--g-border);
+  border-radius:var(--r-card);
+  box-shadow:var(--g-shadow), var(--g-highlight);
+  transition:transform .18s cubic-bezier(.22,.61,.36,1), box-shadow .22s, border-color .22s;
+}
+.glass-card:hover{
+  transform:translateY(-2px);
+  box-shadow:var(--g-shadow-hi), var(--g-highlight);
+  border-color:var(--g-border);
+}
+.glass-strong{ background:var(--g-strong); }
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  /* graceful fallback where blur is unsupported — keep cards readable */
+  .glass-card{ background:var(--c-surface); }
+}
+
+/* smooth, app-wide theme cross-fade — cheap props only (color/bg/border).
+   box-shadow/fill/stroke are intentionally excluded from the universal rule so
+   a theme switch doesn't animate shadows on hundreds of nodes at once. */
+*,*::before,*::after{
+  transition: background-color .28s ease, border-color .28s ease, color .22s ease;
+}
+
+/* glass surface — adapts to theme */
+.n-glass{
+  background:var(--c-glass);
+  backdrop-filter:blur(var(--c-glass-blur)) saturate(140%);
+  -webkit-backdrop-filter:blur(var(--c-glass-blur)) saturate(140%);
+  border:1px solid var(--c-glass-border);
+  box-shadow:var(--c-shadow-lg), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+/* scrollbar */
+::-webkit-scrollbar{width:11px;height:11px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--c-border-strong);border-radius:20px;border:3px solid transparent;background-clip:padding-box;}
+::-webkit-scrollbar-thumb:hover{background:var(--c-faint);background-clip:padding-box;}
+*{scrollbar-color:var(--c-border-strong) transparent;scrollbar-width:thin;}
+
+/* keyframes */
+@keyframes nFadeUp{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:none;}}
+@keyframes nScaleIn{from{opacity:0;transform:scale(.96) translateY(8px);}to{opacity:1;transform:none;}}
+@keyframes nSlideIn{from{opacity:0;transform:translateX(26px);}to{opacity:1;transform:none;}}
+@keyframes nShimmer{0%{background-position:-460px 0;}100%{background-position:460px 0;}}
+@keyframes nToastIn{from{opacity:0;transform:translateY(16px) scale(.96);}to{opacity:1;transform:none;}}
+@keyframes nSpin{to{transform:rotate(360deg);}}
+
+/* buttons */
+.n-btn{font-family:inherit;font-weight:600;border-radius:11px;cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;border:1px solid transparent;
+  transition:transform .18s cubic-bezier(.22,.61,.36,1),box-shadow .25s,background .2s,border-color .2s,opacity .2s,color .2s;}
+.n-btn:active{transform:translateY(1px) scale(.99);}
+.n-btn-primary{background:linear-gradient(180deg,#34a6e6,var(--c-blue));color:var(--c-on-accent);font-weight:700;
+  box-shadow:0 8px 26px -8px rgba(45,156,219,0.5),inset 0 1px 0 rgba(255,255,255,0.35);}
+.n-btn-primary:hover{box-shadow:0 0 24px 1px var(--c-glow),0 10px 30px -6px rgba(91,91,255,0.55);transform:translateY(-1px);}
+.n-btn-ghost{background:transparent;color:var(--c-text);border:1px solid var(--c-border-strong);}
+.n-btn-ghost:hover{background:var(--c-blue-soft);border-color:rgba(45,156,219,0.45);}
+.n-btn-green{background:linear-gradient(180deg,#4ccb8e,var(--c-green));color:var(--c-on-accent);font-weight:700;box-shadow:0 8px 26px -8px rgba(63,185,127,0.5);}
+.n-btn-green:hover{box-shadow:0 0 22px 1px rgba(63,185,127,0.4),0 10px 30px -6px rgba(63,185,127,0.55);transform:translateY(-1px);}
+
+/* inputs */
+.n-in{width:100%;padding:12px 14px;border-radius:11px;background:var(--c-panel);
+  border:1px solid var(--c-border-strong);color:var(--c-text);font-size:14px;font-family:inherit;
+  outline:none;transition:border-color .2s,box-shadow .2s,background .2s;}
+.n-in::placeholder{color:var(--c-faint);}
+.n-in:focus{border-color:var(--c-blue);box-shadow:0 0 0 4px var(--c-blue-soft);}
+
+/* theme toggle */
+.n-theme-toggle{width:38px;height:38px;border-radius:11px;border:1px solid var(--c-border-strong);
+  background:var(--c-surface);color:var(--c-text);cursor:pointer;display:inline-flex;align-items:center;
+  justify-content:center;transition:.25s;position:relative;overflow:hidden;}
+.n-theme-toggle:hover{border-color:var(--c-blue);box-shadow:0 0 0 4px var(--c-blue-soft);}
+.n-theme-toggle svg{transition:transform .45s cubic-bezier(.34,1.56,.64,1),opacity .3s;}
+
+/* skeleton shimmer */
+.n-skel{background:linear-gradient(90deg,var(--c-border) 25%,var(--c-border-strong) 37%,var(--c-border) 63%);
+  background-size:800px 100%;animation:nShimmer 1.4s linear infinite;border-radius:8px;}
+
+/* a11y: never leave entrance content hidden when motion is off / printing */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition:none!important;}
+  html{scroll-behavior:auto;}
+  [style*="animation"],[class*="enter"],.n-skel{animation:none!important;opacity:1!important;transform:none!important;}
+}
+@media print{ *{animation:none!important;opacity:1!important;transform:none!important;} }
+
+/* ============================================================================
+   Lumen components — kanban add-plate, segmented toggle, lead-card hover reveal
+   ============================================================================ */
+/* glass "+ Добавить" plate at the bottom of each kanban column */
+.add-plate{
+  width:100%; display:flex; align-items:center; justify-content:center; gap:7px;
+  font-family:inherit; font-weight:600; font-size:13px; color:var(--c-muted);
+  cursor:pointer; padding:11px; border-radius:14px;
+  border:1px solid var(--g-col-border); background:var(--g-col);
+  backdrop-filter:blur(12px) saturate(140%); -webkit-backdrop-filter:blur(12px) saturate(140%);
+  box-shadow:var(--g-highlight);
+  transition:transform .16s, box-shadow .16s, color .16s, border-color .16s;
+}
+.add-plate:hover{ color:var(--c-text); transform:translateY(-1px); box-shadow:var(--g-shadow), var(--g-highlight); border-color:var(--c-border-strong); }
+
+/* segmented pill toggle (Активные / Все) — active = dark pill */
+.seg-toggle{ display:inline-flex; gap:4px; padding:4px; border-radius:var(--r-pill);
+  background:var(--g-col); border:1px solid var(--g-col-border); }
+.seg-toggle button{ font-family:inherit; font-weight:600; font-size:13px; border:none; background:transparent;
+  color:var(--c-muted); padding:7px 15px; border-radius:var(--r-pill); cursor:pointer; transition:.16s; }
+.seg-toggle button.on{ background:var(--c-pill-bg); color:var(--c-pill-ink); box-shadow:0 2px 8px -2px rgba(20,20,40,0.35); }
+
+/* lead card: reveal the round ··· button on hover */
+.kanban-card:hover .lead-more{ opacity:1 !important; }
+.kanban-card .lead-more:hover{ background:var(--c-blue-soft); color:var(--c-blue-dark); }
+
+/* --- премиум-бордер карточки: тонкая граница только сверху, плавно тает вниз --- */
+.kanban-card { position: relative; }
+.kanban-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(to bottom,
+    var(--g-rim-top, rgba(255,255,255,0.75)) 0%,
+    var(--g-rim-top, rgba(255,255,255,0.75)) 6%,
+    transparent 55%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* --- ПРОИЗВОДИТЕЛЬНОСТЬ DRAG: на момент перетаскивания убираем тяжёлый blur и анимации,
+   чтобы карточка летела за курсором мгновенно (backdrop-filter пересчитывается каждый кадр) --- */
+body.dragging .kanban-card,
+body.dragging .glass-card,
+body.dragging .n-glass {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+body.dragging .kanban-card {
+  transition: none !important;
+  background: var(--c-surface) !important;
+  box-shadow: none !important;
+}
+body.dragging * { cursor: grabbing !important; }
