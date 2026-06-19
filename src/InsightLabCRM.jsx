@@ -6,8 +6,9 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   LineChart, Line, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { loadDb, persistDb, resetDb, auth, integrations } from "./lib/api";
+import { loadDb, persistDb, resetDb, auth, integrations, loadContext } from "./lib/api";
 import Login from "./Login";
+import Blocked from "./Blocked";
 import { motion, AnimatePresence } from "framer-motion";
 import NocturneBackground from "./components/NocturneBackground";
 import { ThemeProvider, ThemeToggle, useTheme } from "./components/theme";
@@ -904,7 +905,7 @@ function KanbanBoard({ stages, items, getStage, renderCard, onMove, sideStages, 
   return (
     <div>
       {onDelete && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap", padding: "0 6px", marginLeft: 15 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4, flexWrap: "wrap", padding: "0 6px", marginLeft: 8 }}>
           {!selMode ? (
             <Btn variant="ghost" size="sm" onClick={() => setSelMode(true)}>Выбрать</Btn>
           ) : (
@@ -2953,6 +2954,7 @@ function ProjectsGrid({ projects, users, respondents, onOpen, onDelete }) {
 // ============================================================================
 function AppInner() {
   const [session, setSession] = useState(undefined); // undefined = проверяем
+  const [ctx, setCtx] = useState(undefined);         // контекст: профиль+компания+подписка
 
   useEffect(() => {
     auth.getSession().then(({ data }) => setSession(data.session || null));
@@ -2960,15 +2962,25 @@ function AppInner() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  if (session === undefined) {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center",
-        justifyContent: "center", fontFamily: FONT, color: C.faint }}>
-        Загрузка…
-      </div>
-    );
-  }
+  // после входа грузим контекст (компания, подписка)
+  useEffect(() => {
+    if (!session) { setCtx(undefined); return; }
+    let alive = true;
+    loadContext().then((c) => { if (alive) setCtx(c); });
+    return () => { alive = false; };
+  }, [session]);
+
+  const loadingScreen = (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center",
+      justifyContent: "center", fontFamily: FONT, color: C.faint }}>
+      Загрузка…
+    </div>
+  );
+
+  if (session === undefined) return loadingScreen;
   if (!session) return <Login />;
+  if (ctx === undefined) return loadingScreen;       // ждём контекст
+  if (ctx && ctx.blocked) return <Blocked reason={ctx.reason} />;
   return <CRMApp key={session.user.id} onSignOut={() => auth.signOut()} />;
 }
 
