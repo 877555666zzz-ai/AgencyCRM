@@ -2556,7 +2556,6 @@ function CRMApp({ onSignOut }) {
   const NAV = {
     admin: [
       { id: "sales", label: "Продажи", },
-      { id: "recruit", label: "Рекрутинг", },
       { id: "calendar", label: "Календарь", },
       { id: "analytics", label: "Аналитика", },
       { id: "users", label: "Пользователи", },
