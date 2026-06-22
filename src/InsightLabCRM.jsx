@@ -6,7 +6,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   LineChart, Line, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { loadDb, persistDb, resetDb, auth, integrations, loadContext, newLeadId } from "./lib/api";
+import { loadDb, persistDb, resetDb, auth, integrations, loadContext, newLeadId, newProjectId } from "./lib/api";
 import Login from "./Login";
 import Blocked from "./Blocked";
 import SuperAdmin from "./SuperAdmin";
@@ -25,6 +25,7 @@ import "./nocturne.css";
 // премиум-иконки навбара (вместо эмодзи), цвет наследуется от кнопки (активная = синяя)
 const NAV_ICONS = {
   sales: <BarChart3 size={17} strokeWidth={2} />,
+  projects: <FolderOpen size={17} strokeWidth={2} />,
   recruit: <Mic size={17} strokeWidth={2} />,
   calendar: <CalIcon size={17} strokeWidth={2} />,
   analytics: <TrendingUp size={17} strokeWidth={2} />,
@@ -1268,40 +1269,23 @@ function LeadDetail({ lead, users, allLeads = [], stages = [], isWonStage, canEd
 // ---------- Конвертация лида → проект (3.4) ----------
 function ConvertModal({ lead, users, onClose, onCreate }) {
   const [p, setP] = useState({
-    client: lead.company, pkg: "Полное", mode: "B",
-    deadline: todayISO(), interviewers: [], planInterviews: 12,
+    name: lead.company || "", description: "",
+    deadline: "", amount: lead.amount || 0,
   });
   const set = (k, v) => setP((x) => ({ ...x, [k]: v }));
-  const toggleInt = (id) => setP((x) => ({
-    ...x, interviewers: x.interviewers.includes(id) ? x.interviewers.filter((i) => i !== id) : [...x.interviewers, id],
-  }));
   return (
-    <Modal open onClose={onClose} width={560} title={"Конвертация в проект: " + lead.company}
+    <Modal open onClose={onClose} width={520} title={"Создать проект из: " + (lead.company || "лида")}
       footer={<><Btn variant="ghost" onClick={onClose}>Отмена</Btn>
-        <Btn disabled={!p.interviewers.length} onClick={() => p.interviewers.length && onCreate({ ...p, price: PACKAGE_PRICE[p.pkg] })}>Создать проект</Btn></>}>
-      <Field label="Клиент"><Input value={p.client} onChange={(e) => set("client", e.target.value)} /></Field>
+        <Btn disabled={!p.name.trim()} onClick={() => p.name.trim() && onCreate(p)}>Создать проект</Btn></>}>
+      <Field label="Название проекта"><Input value={p.name} onChange={(e) => set("name", e.target.value)} placeholder="Например: Лендинг для клиента" /></Field>
+      <Field label="Описание / задача"><Textarea rows={3} value={p.description} onChange={(e) => set("description", e.target.value)} placeholder="Что нужно сделать…" /></Field>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-        <Field label="Тип пакета"><Select value={p.pkg} options={PACKAGES} onChange={(e) => set("pkg", e.target.value)} /></Field>
-        <Field label="Цена, ₸"><Input value={PACKAGE_PRICE[p.pkg]} disabled /></Field>
-        <Field label="Режим респондентов"><Select value={p.mode} options={[{ value: "A", label: RESP_MODES.A }, { value: "B", label: RESP_MODES.B }]} onChange={(e) => set("mode", e.target.value)} /></Field>
-        <Field label="План интервью"><Input type="number" value={p.planInterviews} onChange={(e) => set("planInterviews", +e.target.value)} /></Field>
         <Field label="Дедлайн"><Input type="date" value={p.deadline} onChange={(e) => set("deadline", e.target.value)} /></Field>
+        <Field label="Сумма, ₸"><Input type="number" value={p.amount} onChange={(e) => set("amount", +e.target.value)} /></Field>
       </div>
-      <Field label="Ответственный интервьюер" hint="(обязательно — он увидит этот проект у себя)">
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-          {users.filter((u) => u.role === "interviewer").map((u) => (
-            <button key={u.id} onClick={() => toggleInt(u.id)} style={{
-              border: "1px solid " + (p.interviewers.includes(u.id) ? C.blue : C.border),
-              background: p.interviewers.includes(u.id) ? C.blueLight : C.surface,
-              color: p.interviewers.includes(u.id) ? C.blueDark : C.muted,
-              padding: "7px 13px", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 13, fontFamily: FONT,
-            }}>{u.name}</button>
-          ))}
-          {!users.some((u) => u.role === "interviewer") && (
-            <div style={{ fontSize: 12.5, color: C.faint }}>Нет интервьюеров. Назначьте роль «Интервьюер» в разделе «Пользователи».</div>
-          )}
-        </div>
-      </Field>
+      <div style={{ fontSize: 12.5, color: C.faint, marginTop: 8 }}>
+        Проект появится в разделе «Проекты» в первой стадии. Контакты клиента подтянутся автоматически.
+      </div>
     </Modal>
   );
 }
@@ -2505,6 +2489,147 @@ const fontStyle = `@import url('https://fonts.googleapis.com/css2?family=Inter:w
   ::-webkit-scrollbar { height: 10px; width: 10px; } ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--c-border-strong); border-radius: 20px; border: 3px solid transparent; background-clip: padding-box; }`;
 
+// ============================================================================
+// ProjectsView — раздел Проекты (канбан + карточка) — Этап 4
+// ============================================================================
+function ProjectsView({ projects, stages, users, leads, canEdit, onSave, onMove, onDelete, onOpenLead }) {
+  const [open, setOpen] = useState(null);
+  const projStages = stages.length ? stages : [{ id: "backlog", title: "Бэклог" }];
+  const firstStage = projStages[0]?.id;
+
+  const newProject = () => setOpen({
+    id: newProjectId(), name: "", clientLeadId: null, stage: firstStage,
+    figmaUrl: "", githubUrl: "", briefUrl: "", referencesUrl: "",
+    whatsapp: "", telegram: "", description: "", deadline: null, amount: 0, assignees: [],
+  });
+
+  const stageColor = (id) => projStages.find((s) => s.id === id)?.color || C.blue;
+
+  const card = (p) => (
+    <KanbanCard key={p.id} onClick={() => setOpen(p)} accent={stageColor(p.stage)}>
+      <div style={{ fontWeight: 700, fontSize: 14, color: C.text, marginBottom: 6 }}>{p.name || "Без названия"}</div>
+      {p.clientLeadId && (
+        <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>
+          {leads.find((l) => l.id === p.clientLeadId)?.company || "Клиент"}
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+        {p.figmaUrl && <TagMini>Figma</TagMini>}
+        {p.githubUrl && <TagMini>GitHub</TagMini>}
+        {p.briefUrl && <TagMini>ТЗ</TagMini>}
+      </div>
+      {p.deadline && <div style={{ fontSize: 11.5, color: C.faint }}>До {new Date(p.deadline).toLocaleDateString("ru-RU")}</div>}
+    </KanbanCard>
+  );
+
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <div>
+          <h1 style={{ fontSize: 28, fontWeight: 800, color: C.text, margin: 0 }}>Проекты</h1>
+          <div style={{ fontSize: 14, color: C.muted, marginTop: 4 }}>Канбан выполнения · {projects.length} проектов</div>
+        </div>
+        {canEdit && <Btn onClick={newProject}>+ Проект</Btn>}
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <KanbanBoard stages={projStages} items={projects} getStage={(p) => p.stage}
+          renderCard={card} onMove={onMove} dotColor={stageColor}
+          onDelete={canEdit ? onDelete : undefined}
+          onAddToStage={canEdit ? (stage) => setOpen({ ...newProjectBlank(firstStage), stage }) : undefined} />
+      </div>
+
+      {open && (
+        <ProjectDetail project={open} stages={projStages} users={users} leads={leads}
+          canEdit={canEdit}
+          onSave={(p) => { onSave(p); setOpen(null); }}
+          onClose={() => setOpen(null)}
+          onOpenLead={onOpenLead} />
+      )}
+    </>
+  );
+}
+
+function newProjectBlank(firstStage) {
+  return {
+    id: newProjectId(), name: "", clientLeadId: null, stage: firstStage,
+    figmaUrl: "", githubUrl: "", briefUrl: "", referencesUrl: "",
+    whatsapp: "", telegram: "", description: "", deadline: null, amount: 0, assignees: [],
+  };
+}
+
+function TagMini({ children }) {
+  return <span style={{ fontSize: 10.5, fontWeight: 700, color: C.blueDark, background: C.blueLight,
+    padding: "2px 7px", borderRadius: 6 }}>{children}</span>;
+}
+
+// ---------- Карточка проекта ----------
+function ProjectDetail({ project, stages, users, leads, canEdit, onSave, onClose, onOpenLead }) {
+  const [p, setP] = useState({ ...project });
+  const set = (k, v) => setP((x) => ({ ...x, [k]: v }));
+  useEffect(() => { setP({ ...project }); }, [project.id]);
+
+  const open = (u) => { u = (u || "").trim(); if (!u) return; window.open(u.startsWith("http") ? u : "https://" + u, "_blank", "noopener,noreferrer"); };
+  const waDigits = (p.whatsapp || "").replace(/[^\d]/g, "");
+  const tg = (p.telegram || "").trim();
+  const tgUrl = tg ? (tg.startsWith("http") ? tg : "https://t.me/" + tg.replace(/^@/, "")) : null;
+  const client = leads.find((l) => l.id === p.clientLeadId);
+
+  return (
+    <Modal open onClose={onClose} width={640} title={p.name || "Новый проект"}
+      footer={canEdit && <Btn onClick={() => onSave(p)}>Сохранить</Btn>}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <Field label="Название проекта"><Input value={p.name} disabled={!canEdit} onChange={(e) => set("name", e.target.value)} /></Field>
+        </div>
+        <Field label="Клиент">
+          <Select disabled={!canEdit} value={p.clientLeadId || ""}
+            options={[{ value: "", label: "— не выбран —" }, ...leads.map((l) => ({ value: l.id, label: l.company || "Без названия" }))]}
+            onChange={(e) => set("clientLeadId", e.target.value || null)} />
+        </Field>
+        <Field label="Стадия">
+          <Select disabled={!canEdit} value={p.stage}
+            options={stages.map((s) => ({ value: s.id, label: s.title }))}
+            onChange={(e) => set("stage", e.target.value)} />
+        </Field>
+        <Field label="Дедлайн"><Input type="date" value={p.deadline || ""} disabled={!canEdit} onChange={(e) => set("deadline", e.target.value)} /></Field>
+        <Field label="Сумма, ₸"><Input type="number" value={p.amount} disabled={!canEdit} onChange={(e) => set("amount", +e.target.value)} /></Field>
+        <div style={{ gridColumn: "1 / -1" }}>
+          <Field label="Описание / задача"><Textarea rows={3} value={p.description} disabled={!canEdit} onChange={(e) => set("description", e.target.value)} placeholder="Что нужно сделать…" /></Field>
+        </div>
+        <Field label="Ссылка на Figma"><Input value={p.figmaUrl} disabled={!canEdit} onChange={(e) => set("figmaUrl", e.target.value)} placeholder="figma.com/…" /></Field>
+        <Field label="Ссылка на GitHub"><Input value={p.githubUrl} disabled={!canEdit} onChange={(e) => set("githubUrl", e.target.value)} placeholder="github.com/…" /></Field>
+        <Field label="Ссылка на ТЗ"><Input value={p.briefUrl} disabled={!canEdit} onChange={(e) => set("briefUrl", e.target.value)} placeholder="документ ТЗ" /></Field>
+        <Field label="Референсы"><Input value={p.referencesUrl} disabled={!canEdit} onChange={(e) => set("referencesUrl", e.target.value)} placeholder="ссылка на референсы" /></Field>
+      </div>
+
+      {/* быстрые ссылки */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 }}>
+        {p.figmaUrl && <ChActionBtn color="#a855f7" arrow onClick={() => open(p.figmaUrl)}>Figma</ChActionBtn>}
+        {p.githubUrl && <ChActionBtn color="#1D2939" arrow onClick={() => open(p.githubUrl)}>GitHub</ChActionBtn>}
+        {p.briefUrl && <ChActionBtn arrow onClick={() => open(p.briefUrl)}>ТЗ</ChActionBtn>}
+        {p.referencesUrl && <ChActionBtn arrow onClick={() => open(p.referencesUrl)}>Референсы</ChActionBtn>}
+        {client && <ChActionBtn onClick={() => { onClose(); onOpenLead && onOpenLead(client); }}>Карточка клиента →</ChActionBtn>}
+      </div>
+
+      {/* каналы связи с клиентом */}
+      {(waDigits || tgUrl) && (
+        <div style={{ marginTop: 16 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.muted, marginBottom: 8 }}>Связь с клиентом</div>
+          <div style={{ display: "flex", gap: 8 }}>
+            {waDigits && <ChActionBtn color="#25D366" onClick={() => open("https://wa.me/" + waDigits)}>WhatsApp</ChActionBtn>}
+            {tgUrl && <ChActionBtn color="#0088cc" onClick={() => open(tgUrl)}>Telegram</ChActionBtn>}
+          </div>
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 12 }}>
+        <Field label="WhatsApp (номер)"><Input value={p.whatsapp} disabled={!canEdit} onChange={(e) => set("whatsapp", e.target.value)} placeholder="+7…" /></Field>
+        <Field label="Telegram"><Input value={p.telegram} disabled={!canEdit} onChange={(e) => set("telegram", e.target.value)} placeholder="@username" /></Field>
+      </div>
+    </Modal>
+  );
+}
+
 function CRMApp({ onSignOut }) {
   const [db, setDb] = useState(null);
   const [userId, setUserId] = useState(null);
@@ -2556,6 +2681,7 @@ function CRMApp({ onSignOut }) {
   const NAV = {
     admin: [
       { id: "sales", label: "Продажи", },
+      { id: "projects", label: "Проекты", },
       { id: "calendar", label: "Календарь", },
       { id: "analytics", label: "Аналитика", },
       { id: "users", label: "Пользователи", },
@@ -2563,6 +2689,7 @@ function CRMApp({ onSignOut }) {
     ],
     sales: [
       { id: "sales", label: "Продажи", },
+      { id: "projects", label: "Проекты", },
       { id: "calendar", label: "Календарь", },
       { id: "analytics", label: "Аналитика", },
     ],
@@ -2582,15 +2709,33 @@ function CRMApp({ onSignOut }) {
     setPage(NAV[u.role][0].id);
   };
 
-  // ---------- динамические стадии компании (Шаг B) ----------
-  const salesStages = (db.stages && db.stages.length)
-    ? db.stages.map((s) => ({ id: s.id, title: s.title, color: s.color, isWon: s.isWon, isLost: s.isLost }))
-    : SALES_STAGES; // фолбэк на старые, если стадий нет
+  // ---------- динамические стадии компании (Шаг B + Этап 4) ----------
+  const salesPipe = db.__defaultPipeline;
+  const projPipe = db.__projectPipeline;
+  const allStages = db.stages || [];
+  // стадии продаж: из sales-воронки (или все, если воронок не различить)
+  const salesStagesRaw = projPipe
+    ? allStages.filter((s) => s.pipelineId === salesPipe)
+    : allStages.filter((s) => s.pipelineId !== projPipe);
+  const salesStages = (salesStagesRaw.length
+    ? salesStagesRaw
+    : (allStages.length ? allStages : SALES_STAGES)
+  ).map((s) => ({ id: s.id, title: s.title, color: s.color, isWon: s.isWon, isLost: s.isLost }));
   const wonStage = salesStages.find((s) => s.isWon);
   const lostStage = salesStages.find((s) => s.isLost);
   const isWonStage = (sid) => wonStage ? sid === wonStage.id : sid === "won";
   const isLostStage = (sid) => lostStage ? sid === lostStage.id : sid === "lost";
   const stageTitleById = (sid) => salesStages.find((s) => s.id === sid)?.title || "";
+
+  // стадии проектов: из projects-воронки
+  const projStages = allStages
+    .filter((s) => projPipe && s.pipelineId === projPipe)
+    .map((s) => ({ id: s.id, title: s.title, color: s.color, isWon: s.isWon, isLost: s.isLost }));
+  const moveProject = (id, stage) => upd("projects", id, (p) => ({ ...p, stage }));
+  const saveProject = (p) => db.projects.some((x) => x.id === p.id)
+    ? upd("projects", p.id, () => p)
+    : patch({ projects: [...db.projects, p] });
+  const deleteProjects = (ids) => { const s = new Set(ids); patch({ projects: db.projects.filter((p) => !s.has(p.id)) }); };
 
   // ---------- данные с учётом прав (3.2) ----------
   const visibleLeads = isAdmin ? db.leads : db.leads.filter((l) => l.owner === userId);
@@ -2627,14 +2772,19 @@ function CRMApp({ onSignOut }) {
   const deleteLeads = (ids) => { const s = new Set(ids); patch({ leads: db.leads.filter((l) => !s.has(l.id)) }); };
   const createProjectFromLead = (lead, form) => {
     const proj = {
-      id: uid("proj"), client: form.client, pkg: form.pkg, price: form.price,
-      start: todayISO(), deadline: form.deadline, interviewers: form.interviewers,
-      mode: form.mode, status: "active", planInterviews: form.planInterviews,
-      script: { id: uid("scr"), name: "Скрипт: " + form.client, blocks: [] },
+      id: newProjectId(),
+      name: form.name || lead.company || "Новый проект",
+      clientLeadId: lead.id,
+      stage: projStages[0]?.id,
+      figmaUrl: "", githubUrl: "", briefUrl: "", referencesUrl: "",
+      whatsapp: lead.whatsapp || lead.phone || "", telegram: lead.telegram || "",
+      description: form.description || "", deadline: form.deadline || null,
+      amount: form.amount || lead.amount || 0, assignees: [],
     };
     patch({ projects: [...db.projects, proj] });
-    upd("leads", lead.id, (l) => ({ ...l, stage: "won" }));
+    if (wonStage) upd("leads", lead.id, (l) => ({ ...l, stage: wonStage.id }));
     setConvertLead(null); setOpenLead(null);
+    setPage("projects");
   };
 
   // ---------- действия: респонденты ----------
@@ -2798,6 +2948,15 @@ function CRMApp({ onSignOut }) {
           dotColor={stageColor} onDelete={deleteLeads}
           onAddToStage={(stage) => setOpenLead({ id: newLeadId(), company: "", contact: "", title: "", phone: "", email: "", source: "", stage, owner: userId, nextTouch: todayISO(), amount: 0, notes: "", history: [] })} />
       </>
+    );
+  }
+
+  else if (validPage === "projects") {
+    content = (
+      <ProjectsView projects={db.projects} stages={projStages} users={db.users} leads={db.leads}
+        canEdit={isAdmin || role === "sales"}
+        onSave={saveProject} onMove={moveProject} onDelete={deleteProjects}
+        onOpenLead={(l) => { setPage("sales"); setOpenLead(l); }} />
     );
   }
 

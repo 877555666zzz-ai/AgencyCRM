@@ -71,6 +71,27 @@ const toLeadRow = (l, companyId, pipelineId) => ({
   custom: l.custom || {},
 });
 
+// ---------- мапперы проекта ----------
+const fromProject = (r) => ({
+  id: r.id, stage: r.stage_id, stageId: r.stage_id, pipelineId: r.pipeline_id,
+  name: r.name || "", clientLeadId: r.client_lead_id || null,
+  figmaUrl: r.figma_url || "", githubUrl: r.github_url || "",
+  briefUrl: r.brief_url || "", referencesUrl: r.references_url || "",
+  whatsapp: r.whatsapp || "", telegram: r.telegram || "",
+  description: r.description || "", deadline: r.deadline || null,
+  amount: Number(r.amount) || 0, assignees: r.assignees || [], custom: r.custom || {},
+});
+const toProjectRow = (p, companyId, pipelineId) => ({
+  id: p.id, company_id: companyId, pipeline_id: p.pipelineId || pipelineId || null,
+  stage_id: p.stage || p.stageId || null,
+  name: p.name || "", client_lead_id: p.clientLeadId || null,
+  figma_url: p.figmaUrl || null, github_url: p.githubUrl || null,
+  brief_url: p.briefUrl || null, references_url: p.referencesUrl || null,
+  whatsapp: p.whatsapp || null, telegram: p.telegram || null,
+  description: p.description || null, deadline: p.deadline || null,
+  amount: p.amount || 0, assignees: p.assignees || [], custom: p.custom || {},
+});
+
 // ---------- загрузка данных компании (стадии + лиды + юзеры) ----------
 export async function loadDb() {
   const { data: au } = await supabase.auth.getUser();
@@ -88,11 +109,12 @@ export async function loadDb() {
   const companyId = profile.company_id;
 
   // грузим параллельно: профили компании, стадии, воронки, лиды
-  const [profilesRes, stagesRes, pipesRes, leadsRes] = await Promise.all([
+  const [profilesRes, stagesRes, pipesRes, leadsRes, projectsRes] = await Promise.all([
     supabase.from("profiles").select("*").eq("company_id", companyId),
     supabase.from("stages").select("*").eq("company_id", companyId).order("order_index"),
     supabase.from("pipelines").select("*").eq("company_id", companyId),
     supabase.from("leads").select("*").eq("company_id", companyId).order("created_at"),
+    supabase.from("projects").select("*").eq("company_id", companyId).order("created_at"),
   ]);
 
   const mapRole = (r) => (r === "superadmin" || r === "admin") ? "admin" : "sales";
@@ -103,7 +125,7 @@ export async function loadDb() {
 
   const stages = (stagesRes.data || []).map((s) => ({
     id: s.id, title: s.title, color: s.color, order: s.order_index,
-    isWon: s.is_won, isLost: s.is_lost,
+    isWon: s.is_won, isLost: s.is_lost, pipelineId: s.pipeline_id,
   }));
 
   const pipelines = (pipesRes.data || []).map((p) => ({
@@ -111,12 +133,14 @@ export async function loadDb() {
   }));
 
   const leads = (leadsRes.data || []).map(fromLead);
+  const projects = (projectsRes.data || []).map(fromProject);
 
   return {
-    users, stages, pipelines, leads,
-    projects: [], respondents: [], notes: {}, tasks: [], reminders: [],
+    users, stages, pipelines, leads, projects,
+    respondents: [], notes: {}, tasks: [], reminders: [],
     __me: authUser.id, __company: companyId,
-    __defaultPipeline: (pipelines.find((p) => p.type === "sales" && p.isDefault) || pipelines[0])?.id || null,
+    __defaultPipeline: (pipelines.find((p) => p.type === "sales" && p.isDefault) || pipelines.find((p) => p.type === "sales") || pipelines[0])?.id || null,
+    __projectPipeline: (pipelines.find((p) => p.type === "projects" && p.isDefault) || pipelines.find((p) => p.type === "projects"))?.id || null,
   };
 }
 
@@ -151,6 +175,19 @@ export async function persistDb(next, prev) {
     if (error) console.warn("[persist] leads delete:", error.message);
   }
 
+  // проекты
+  const projPipeline = next.__projectPipeline;
+  const { upserts: pUp, deletes: pDel } = diff(prev.projects, next.projects);
+  if (pUp.length) {
+    const rows = pUp.map((p) => toProjectRow(p, companyId, projPipeline));
+    const { error } = await supabase.from("projects").upsert(rows);
+    if (error) console.warn("[persist] projects upsert:", error.message);
+  }
+  if (pDel.length) {
+    const { error } = await supabase.from("projects").delete().in("id", pDel);
+    if (error) console.warn("[persist] projects delete:", error.message);
+  }
+
   // профили (изменения ролей/имён)
   const { upserts: uUp } = diff(prev.users, next.users);
   if (uUp.length) {
@@ -169,6 +206,33 @@ export function newLeadId() {
   return crypto.randomUUID ? crypto.randomUUID() :
     "lead_" + Date.now() + "_" + Math.random().toString(16).slice(2);
 }
+export function newProjectId() {
+  return crypto.randomUUID ? crypto.randomUUID() :
+    "proj_" + Date.now() + "_" + Math.random().toString(16).slice(2);
+}
+
+// ---------- комментарии проектов ----------
+export const projectComments = {
+  list: async (projectId) => {
+    const { data, error } = await supabase
+      .from("project_comments").select("*").eq("project_id", projectId)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return data || [];
+  },
+  add: async (companyId, projectId, text, authorName) => {
+    const { data: au } = await supabase.auth.getUser();
+    const { error } = await supabase.from("project_comments").insert({
+      company_id: companyId, project_id: projectId,
+      author: au?.user?.id || null, author_name: authorName || "", text,
+    });
+    if (error) throw error;
+  },
+  remove: async (id) => {
+    const { error } = await supabase.from("project_comments").delete().eq("id", id);
+    if (error) throw error;
+  },
+};
 
 // ============================================================================
 // СУПЕРАДМИН: управление компаниями
