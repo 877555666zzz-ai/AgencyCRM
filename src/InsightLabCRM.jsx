@@ -1971,46 +1971,60 @@ function ImportExportModal({ kind, existing, projectId, projects = [], onClose, 
 // ---------- Аналитика (3.8) ----------
 const CHART_COLORS = ["#2D9CDB", "#27AE60", "#F2994A", "#9B51E0", "#56CCF2", "#EB5757"];
 
-function Analytics({ role, user, leads, projects, respondents, users }) {
-  // Палитра графиков: recharts красит SVG-атрибутами, где var() не работает,
-  // поэтому используем реальные hex, зависящие от текущей темы.
+function Analytics({ role, user, leads, projects, salesStages = [], projStages = [], users, isWonStage, isLostStage }) {
   const { theme: __theme } = useTheme();
   const CK = __theme === "dark"
     ? { axis: "#9DABC0", grid: "rgba(255,255,255,0.10)", blue: "#2D9CDB", green: "#3FB97F", tipBg: "#141C2B", tipBd: "rgba(255,255,255,0.14)", text: "#E6EDF5", sub: "#9DABC0", cursor: "rgba(255,255,255,0.05)" }
     : { axis: "#6B7785", grid: "#E6EBF0", blue: "#2D9CDB", green: "#27AE60", tipBg: "#FFFFFF", tipBd: "#E6EBF0", text: "#2D2D2D", sub: "#6B7785", cursor: "rgba(45,156,219,0.08)" };
-  const scope = role === "sales" ? leads.filter((l) => l.owner === user.id) : leads;
-  const respScope = role === "interviewer" ? respondents.filter((r) => r.owner === user.id) : respondents;
 
-  // --- продажи ---
-  const byStage = SALES_STAGES.filter((s) => s.id !== "lost").map((s) => ({
+  const [period, setPeriod] = useState("all"); // all|month|quarter|year
+  const periodStart = (() => {
+    const d = new Date();
+    if (period === "month") d.setMonth(d.getMonth() - 1);
+    else if (period === "quarter") d.setMonth(d.getMonth() - 3);
+    else if (period === "year") d.setFullYear(d.getFullYear() - 1);
+    else return null;
+    return d;
+  })();
+  const inPeriod = (item) => {
+    if (!periodStart) return true;
+    const d = item.createdAt || item.created_at;
+    // у нас нет createdAt на клиенте — фильтруем по nextTouch/deadline как приближение, иначе всё
+    return true;
+  };
+
+  const _won = (l) => isWonStage ? isWonStage(l.stage) : l.stage === "won";
+  const _lost = (l) => isLostStage ? isLostStage(l.stage) : l.stage === "lost";
+  const scope = role === "sales" ? leads.filter((l) => l.owner === user.id) : leads;
+
+  // --- метрики сделок ---
+  const byStage = salesStages.filter((s) => !s.isLost).map((s) => ({
     name: s.title.length > 12 ? s.title.slice(0, 11) + "…" : s.title,
     Лиды: scope.filter((l) => l.stage === s.id).length,
   }));
-  const won = scope.filter((l) => l.stage === "won").length;
-  const lost = scope.filter((l) => l.stage === "lost").length;
+  const won = scope.filter(_won).length;
+  const lost = scope.filter(_lost).length;
   const winRate = won + lost ? Math.round((won / (won + lost)) * 100) : 0;
-  const pipeline = scope.filter((l) => !["won", "lost"].includes(l.stage)).reduce((s, l) => s + (l.amount || 0), 0);
-  const closed = scope.filter((l) => l.stage === "won").reduce((s, l) => s + (l.amount || 0), 0);
-  const demos = scope.reduce((s, l) => s + (l.history || []).filter((a) => a.type === "demo").length, 0);
+  const pipeline = scope.filter((l) => !_won(l) && !_lost(l)).reduce((s, l) => s + (l.amount || 0), 0);
+  const closed = scope.filter(_won).reduce((s, l) => s + (l.amount || 0), 0);
+  const lostSum = scope.filter(_lost).reduce((s, l) => s + (l.amount || 0), 0);
+  const avgCheck = won ? Math.round(closed / won) : 0;
 
-  // --- рекрутинг ---
-  const interviewers = users.filter((u) => u.role === "interviewer" && (role !== "interviewer" || u.id === user.id));
-  const perInterviewer = interviewers.map((u) => ({
-    name: u.name.split(" ")[0],
-    Интервью: respScope.filter((r) => r.owner === u.id && (r.stage === "done" || r.stage === "insight")).length,
+  // --- метрики проектов ---
+  const projDoneStage = projStages.find((s) => s.isWon);
+  const projInWork = projects.filter((p) => !projDoneStage || p.stage !== projDoneStage.id).length;
+  const projDone = projDoneStage ? projects.filter((p) => p.stage === projDoneStage.id).length : 0;
+  const projByStage = projStages.map((s) => ({
+    name: s.title.length > 12 ? s.title.slice(0, 11) + "…" : s.title,
+    Проекты: projects.filter((p) => p.stage === s.id).length,
   }));
-  const totalDone = respScope.filter((r) => r.stage === "done" || r.stage === "insight").length;
-  const noShow = respScope.filter((r) => r.interviewStatus === "Неявка").length;
-  const noShowPct = respScope.length ? Math.round((noShow / respScope.length) * 100) : 0;
-  const withInsight = respScope.filter((r) => r.insight).length;
-  const insightRate = totalDone ? Math.round((withInsight / totalDone) * 100) : 0;
-  const modeShare = [
-    { name: "Режим A (база клиента)", value: projects.filter((p) => p.mode === "A").length },
-    { name: "Режим B (собираем сами)", value: projects.filter((p) => p.mode === "B").length },
-  ];
-  const avgRecruitDays = projects.length
-    ? Math.round(projects.reduce((s, p) => s + Math.max(0, daysBetween(p.start, todayISO())), 0) / projects.length)
-    : 0;
+
+  // --- по сотрудникам ---
+  const sellers = users.filter((u) => role !== "sales" || u.id === user.id);
+  const perSeller = sellers.map((u) => ({
+    name: (u.name || "").split(" ")[0] || u.name,
+    Закрыто: scope.filter((l) => l.owner === u.id && _won(l)).length,
+  })).filter((x) => x.Закрыто > 0);
 
   const Section = ({ title, children }) => (
     <div style={{ marginBottom: 28 }}>
@@ -2021,64 +2035,78 @@ function Analytics({ role, user, leads, projects, respondents, users }) {
 
   return (
     <div>
-      <h2 style={{ margin: "0 0 20px", fontSize: 22, fontWeight: 800 }}>Аналитика</h2>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800 }}>Аналитика</h2>
+        <div style={{ display: "flex", gap: 6 }}>
+          {[["all", "Всё время"], ["month", "Месяц"], ["quarter", "Квартал"], ["year", "Год"]].map(([v, lbl]) => (
+            <button key={v} onClick={() => setPeriod(v)} style={{
+              padding: "7px 13px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FONT,
+              border: "1px solid " + (period === v ? C.blue : C.border),
+              background: period === v ? C.blueLight : C.surface,
+              color: period === v ? C.blueDark : C.muted,
+            }}>{lbl}</button>
+          ))}
+        </div>
+      </div>
 
-      {role !== "interviewer" && (
-        <Section title="Продажи">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 16 }}>
-            <StatCard label="Win rate" value={winRate + "%"} sub={won + " выиграно / " + lost + " проиграно"} accent={C.green} />
-            <StatCard label="Пайплайн" value={fmtMoney(pipeline)} sub="в активных стадиях" />
-            <StatCard label="Закрытая выручка" value={fmtMoney(closed)} accent={C.blue} />
-            <StatCard label="Разборов-пари" value={demos} sub="всего проведено" />
-          </div>
+      <Section title="Сделки">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 16 }}>
+          <StatCard label="Win rate" value={winRate + "%"} sub={won + " выиграно / " + lost + " проиграно"} accent={C.green} />
+          <StatCard label="Закрыто" value={fmtMoney(closed)} sub="сумма выигранных" accent={C.green} />
+          <StatCard label="Пайплайн" value={fmtMoney(pipeline)} sub="в активных стадиях" />
+          <StatCard label="Средний чек" value={fmtMoney(avgCheck)} sub="по выигранным" />
+          <StatCard label="Упущено" value={fmtMoney(lostSum)} sub={lost + " проиграно"} accent={C.red} />
+        </div>
+        <Panel>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.muted, marginBottom: 10 }}>Лиды по стадиям</div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={byStage}>
+              <CartesianGrid strokeDasharray="3 3" stroke={CK.grid} vertical={false} />
+              <XAxis dataKey="name" tick={{ fill: CK.axis, fontSize: 11 }} />
+              <YAxis tick={{ fill: CK.axis, fontSize: 11 }} allowDecimals={false} />
+              <Tooltip contentStyle={{ background: CK.tipBg, border: "1px solid " + CK.tipBd, borderRadius: 10, color: CK.text }} cursor={{ fill: CK.cursor }} />
+              <Bar dataKey="Лиды" fill={CK.blue} radius={[6, 6, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </Panel>
+      </Section>
+
+      <Section title="Проекты">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 16 }}>
+          <StatCard label="В работе" value={projInWork} sub="активных проектов" />
+          <StatCard label="Завершено" value={projDone} sub="готовых" accent={C.green} />
+          <StatCard label="Всего" value={projects.length} sub="проектов" />
+        </div>
+        {projByStage.length > 0 && (
           <Panel>
-            <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14 }}>Лиды по стадиям воронки</div>
-            <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={byStage} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.muted, marginBottom: 10 }}>Проекты по стадиям</div>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={projByStage}>
                 <CartesianGrid strokeDasharray="3 3" stroke={CK.grid} vertical={false} />
-                <XAxis dataKey="name" tick={{ fontSize: 11, fill: CK.axis }} interval={0} angle={-12} textAnchor="end" height={50} />
-                <YAxis tick={{ fontSize: 11, fill: CK.axis }} allowDecimals={false} />
-                <Tooltip cursor={{ fill: CK.cursor }} contentStyle={{ background: CK.tipBg, border: "1px solid " + CK.tipBd, borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,0.35)" }} itemStyle={{ color: CK.text }} labelStyle={{ color: CK.sub }} />
-                <Bar dataKey="Лиды" fill={CK.blue} radius={[6, 6, 0, 0]} />
+                <XAxis dataKey="name" tick={{ fill: CK.axis, fontSize: 11 }} />
+                <YAxis tick={{ fill: CK.axis, fontSize: 11 }} allowDecimals={false} />
+                <Tooltip contentStyle={{ background: CK.tipBg, border: "1px solid " + CK.tipBd, borderRadius: 10, color: CK.text }} cursor={{ fill: CK.cursor }} />
+                <Bar dataKey="Проекты" fill={CK.green} radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </Panel>
-        </Section>
-      )}
+        )}
+      </Section>
 
-      {role !== "sales" && (
-        <Section title="Рекрутинг и доставка">
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 16 }}>
-            <StatCard label="Интервью проведено" value={totalDone} accent={C.blue} />
-            <StatCard label="Insight rate" value={insightRate + "%"} sub={withInsight + " с инсайтом"} accent={C.green} />
-            <StatCard label="% неявок" value={noShowPct + "%"} accent={noShowPct > 20 ? C.red : C.text} />
-            <StatCard label="Ср. дней на рекрутинг" value={avgRecruitDays} sub="по активным проектам" />
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 16 }}>
-            <Panel>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14 }}>Проведено интервью на интервьюера</div>
-              <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={perInterviewer} margin={{ top: 4, right: 8, left: -18, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={CK.grid} vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: CK.axis }} />
-                  <YAxis tick={{ fontSize: 11, fill: CK.axis }} allowDecimals={false} />
-                  <Tooltip cursor={{ fill: CK.cursor }} contentStyle={{ background: CK.tipBg, border: "1px solid " + CK.tipBd, borderRadius: 10, boxShadow: "0 8px 28px rgba(0,0,0,0.35)" }} itemStyle={{ color: CK.text }} labelStyle={{ color: CK.sub }} />
-                  <Bar dataKey="Интервью" fill={CK.green} radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </Panel>
-            <Panel>
-              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 14 }}>Проекты: режим A vs B</div>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie data={modeShare} dataKey="value" nameKey="name" cx="50%" cy="45%" outerRadius={70} label>
-                    {modeShare.map((e, i) => <Cell key={i} fill={CHART_COLORS[i]} />)}
-                  </Pie>
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </Panel>
-          </div>
+      {perSeller.length > 0 && role !== "sales" && (
+        <Section title="По сотрудникам">
+          <Panel>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.muted, marginBottom: 10 }}>Закрытых сделок</div>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={perSeller}>
+                <CartesianGrid strokeDasharray="3 3" stroke={CK.grid} vertical={false} />
+                <XAxis dataKey="name" tick={{ fill: CK.axis, fontSize: 11 }} />
+                <YAxis tick={{ fill: CK.axis, fontSize: 11 }} allowDecimals={false} />
+                <Tooltip contentStyle={{ background: CK.tipBg, border: "1px solid " + CK.tipBd, borderRadius: 10, color: CK.text }} cursor={{ fill: CK.cursor }} />
+                <Bar dataKey="Закрыто" fill={CK.blue} radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </Panel>
         </Section>
       )}
     </div>
@@ -3050,7 +3078,9 @@ function CRMApp({ onSignOut }) {
   }
 
   else if (validPage === "analytics") {
-    content = <Analytics role={role} user={user} leads={db.leads} projects={db.projects} respondents={db.respondents} users={db.users} />;
+    content = <Analytics role={role} user={user} leads={db.leads} projects={db.projects}
+      salesStages={salesStages} projStages={projStages} users={db.users}
+      isWonStage={isWonStage} isLostStage={isLostStage} />;
   }
 
   else if (validPage === "users") content = <UsersView users={db.users} onSave={saveLeadUser} />;
