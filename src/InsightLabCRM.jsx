@@ -9,6 +9,7 @@ import {
 import { loadDb, persistDb, resetDb, auth, integrations, loadContext } from "./lib/api";
 import Login from "./Login";
 import Blocked from "./Blocked";
+import SuperAdmin from "./SuperAdmin";
 import { motion, AnimatePresence } from "framer-motion";
 import NocturneBackground from "./components/NocturneBackground";
 import { ThemeProvider, ThemeToggle, useTheme } from "./components/theme";
@@ -2980,6 +2981,7 @@ function AppInner() {
   if (session === undefined) return loadingScreen;
   if (!session) return <Login />;
   if (ctx === undefined) return loadingScreen;       // ждём контекст
+  if (ctx && ctx.isSuperadmin) return <SuperAdmin onSignOut={() => auth.signOut()} />;
   if (ctx && ctx.blocked) return <Blocked reason={ctx.reason} />;
   return <CRMApp key={session.user.id} onSignOut={() => auth.signOut()} />;
 }

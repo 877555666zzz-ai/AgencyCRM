@@ -116,3 +116,74 @@ export const integrations = {
   listAudit: async () => [],
   listDeliveries: async () => [],
 };
+
+// ============================================================================
+// СУПЕРАДМИН: управление компаниями (Этап 2 — суперадминка)
+// ============================================================================
+export const superadmin = {
+  // список всех компаний + счётчик пользователей
+  listCompanies: async () => {
+    const { data: companies, error } = await supabase
+      .from("companies")
+      .select("*")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+
+    // считаем пользователей по компаниям
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("company_id");
+    const counts = {};
+    (profiles || []).forEach((p) => {
+      if (p.company_id) counts[p.company_id] = (counts[p.company_id] || 0) + 1;
+    });
+
+    return (companies || []).map((c) => ({ ...c, userCount: counts[c.id] || 0 }));
+  },
+
+  // создать компанию + руководителя (через Edge Function)
+  createCompany: async (payload) => {
+    const { data: sess } = await supabase.auth.getSession();
+    const token = sess?.session?.access_token;
+    const url = supabase.supabaseUrl + "/functions/v1/admin-create-company";
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + token,
+      },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Ошибка создания компании");
+    return data;
+  },
+
+  // включить/выключить компанию
+  toggleActive: async (companyId, active) => {
+    const { error } = await supabase
+      .from("companies").update({ active }).eq("id", companyId);
+    if (error) throw error;
+  },
+
+  // продлить/изменить подписку
+  setSubscription: async (companyId, untilDate) => {
+    const { error } = await supabase
+      .from("companies").update({ subscription_until: untilDate }).eq("id", companyId);
+    if (error) throw error;
+  },
+
+  // изменить лимит пользователей
+  setMaxUsers: async (companyId, maxUsers) => {
+    const { error } = await supabase
+      .from("companies").update({ max_users: maxUsers }).eq("id", companyId);
+    if (error) throw error;
+  },
+
+  // удалить компанию (со всеми данными — каскадом)
+  deleteCompany: async (companyId) => {
+    const { error } = await supabase
+      .from("companies").delete().eq("id", companyId);
+    if (error) throw error;
+  },
+};
