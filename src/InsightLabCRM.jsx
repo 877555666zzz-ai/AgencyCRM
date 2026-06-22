@@ -6,7 +6,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
   LineChart, Line, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { loadDb, persistDb, resetDb, auth, integrations, loadContext } from "./lib/api";
+import { loadDb, persistDb, resetDb, auth, integrations, loadContext, newLeadId } from "./lib/api";
 import Login from "./Login";
 import Blocked from "./Blocked";
 import SuperAdmin from "./SuperAdmin";
@@ -1074,7 +1074,7 @@ function CopyField({ label, value }) {
 }
 
 // ---------- Карточка лида (полная, с историей) ----------
-function LeadDetail({ lead, users, allLeads = [], canEdit, onSave, onClose, onConvert, onPick }) {
+function LeadDetail({ lead, users, allLeads = [], stages = [], isWonStage, canEdit, onSave, onClose, onConvert, onPick }) {
   const [l, setL] = useState({ ...lead });
   const [act, setAct] = useState({ type: "call", title: "" });
   const [q, setQ] = useState("");
@@ -1087,7 +1087,11 @@ function LeadDetail({ lead, users, allLeads = [], canEdit, onSave, onClose, onCo
     setL((p) => ({ ...p, history: [...(p.history || []), a] }));
     setAct({ type: "call", title: "" });
   };
-  const stageTitle = SALES_STAGES.find((s) => s.id === l.stage)?.title;
+  const stageList = stages.length ? stages : SALES_STAGES;
+  const _wonStage = stageList.find((s) => s.isWon);
+  const _isWon = (sid) => isWonStage ? isWonStage(sid) : (_wonStage ? sid === _wonStage.id : sid === "won");
+  const _wonId = _wonStage ? _wonStage.id : "won";
+  const stageTitle = stageList.find((s) => s.id === l.stage)?.title;
 
   // --- каналы связи (показываем только заполненные) ---
   const waDigits = (l.whatsapp || l.phone || "").replace(/[^\d]/g, "");
@@ -1123,10 +1127,10 @@ function LeadDetail({ lead, users, allLeads = [], canEdit, onSave, onClose, onCo
     <Modal open onClose={onClose} width={listLeads.length > 1 ? 960 : 620} title={l.company || "Новый лид"}
       footer={canEdit && (
         <>
-          {l.stage !== "won" && <Btn variant="ghost" onClick={() => { onSave(l); onClose(); }}>Сохранить</Btn>}
-          {l.stage === "won"
+          {!_isWon(l.stage) && <Btn variant="ghost" onClick={() => { onSave(l); onClose(); }}>Сохранить</Btn>}
+          {_isWon(l.stage)
             ? <Btn onClick={() => onConvert(l)}>Конвертировать в проект →</Btn>
-            : <Btn onClick={() => { onSave({ ...l, stage: "won" }); onConvert({ ...l, stage: "won" }); }}>Выиграно → создать проект</Btn>}
+            : <Btn onClick={() => { onSave({ ...l, stage: _wonId }); onConvert({ ...l, stage: _wonId }); }}>Выиграно → создать проект</Btn>}
         </>
       )}>
       <div style={{ display: listLeads.length > 1 ? "grid" : "block", gridTemplateColumns: listLeads.length > 1 ? "240px 1fr" : "1fr", gap: 20 }}>
@@ -1172,7 +1176,7 @@ function LeadDetail({ lead, users, allLeads = [], canEdit, onSave, onClose, onCo
         <Field label="Должность / роль"><Input value={l.title} disabled={!canEdit} onChange={(e) => set("title", e.target.value)} /></Field>
         <Field label="Размер компании"><Input value={l.employees || ""} disabled={!canEdit} onChange={(e) => set("employees", e.target.value)} /></Field>
         <Field label="Источник"><Select disabled={!canEdit} value={l.source} options={SOURCES} onChange={(e) => set("source", e.target.value)} /></Field>
-        <Field label="Стадия"><Select disabled={!canEdit} value={l.stage} options={SALES_STAGES.map((s) => ({ value: s.id, label: s.title }))} onChange={(e) => set("stage", e.target.value)} /></Field>
+        <Field label="Стадия"><Select disabled={!canEdit} value={l.stage} options={stageList.map((s) => ({ value: s.id, label: s.title }))} onChange={(e) => set("stage", e.target.value)} /></Field>
         <Field label="Ответственный"><Select disabled={!canEdit} value={l.owner} options={users.filter((u) => u.role === "sales" || u.role === "admin").map((u) => ({ value: u.id, label: u.name }))} onChange={(e) => set("owner", e.target.value)} /></Field>
         <Field label="Дата следующего касания"><Input type="date" value={l.nextTouch || ""} disabled={!canEdit} onChange={(e) => set("nextTouch", e.target.value)} /></Field>
         <Field label="Оценочная сумма сделки, ₸"><Input type="number" value={l.amount} disabled={!canEdit} onChange={(e) => set("amount", +e.target.value)} /></Field>
@@ -2579,6 +2583,16 @@ function CRMApp({ onSignOut }) {
     setPage(NAV[u.role][0].id);
   };
 
+  // ---------- динамические стадии компании (Шаг B) ----------
+  const salesStages = (db.stages && db.stages.length)
+    ? db.stages.map((s) => ({ id: s.id, title: s.title, color: s.color, isWon: s.isWon, isLost: s.isLost }))
+    : SALES_STAGES; // фолбэк на старые, если стадий нет
+  const wonStage = salesStages.find((s) => s.isWon);
+  const lostStage = salesStages.find((s) => s.isLost);
+  const isWonStage = (sid) => wonStage ? sid === wonStage.id : sid === "won";
+  const isLostStage = (sid) => lostStage ? sid === lostStage.id : sid === "lost";
+  const stageTitleById = (sid) => salesStages.find((s) => s.id === sid)?.title || "";
+
   // ---------- данные с учётом прав (3.2) ----------
   const visibleLeads = isAdmin ? db.leads : db.leads.filter((l) => l.owner === userId);
   // --- уведомления для колокольчика (живые события) ---
@@ -2586,10 +2600,9 @@ function CRMApp({ onSignOut }) {
     const today = todayISO();
     const mine = (o) => isAdmin || o === userId;
     const out = [];
-    (db.leads || []).filter((l) => l.stage === "new" && mine(l.owner)).forEach((l) =>
+    const firstStageId = salesStages[0]?.id;
+    (db.leads || []).filter((l) => l.stage === firstStageId && mine(l.owner)).forEach((l) =>
       out.push({ id: "ln_" + l.id, kind: "lead", page: "sales", title: "Новый лид", sub: l.company || "Без названия" }));
-    (db.leads || []).filter((l) => l.stage === "demo_set" && mine(l.owner)).forEach((l) =>
-      out.push({ id: "ld_" + l.id, kind: "demo", page: "sales", title: "Разбор-пари назначен", sub: l.company || "Без названия" }));
     (db.tasks || []).filter((t) => !t.done && (t.when || "").slice(0, 10) === today && mine(t.owner)).forEach((t) =>
       out.push({ id: "lt_" + t.id, kind: t.type, page: "calendar", title: "Сегодня", sub: t.title }));
     return out;
@@ -2597,7 +2610,7 @@ function CRMApp({ onSignOut }) {
   // визуальные фильтры воронки (поиск + Активные/Все) — не трогают данные
   const _lq = salesQuery.trim().toLowerCase();
   const displayLeads = visibleLeads.filter((l) => {
-    if (salesActiveOnly && ["won", "lost"].includes(l.stage)) return false;
+    if (salesActiveOnly && (isWonStage(l.stage) || isLostStage(l.stage))) return false;
     if (!_lq) return true;
     return [l.company, l.contact, l.title, l.source].filter(Boolean).some((v) => String(v).toLowerCase().includes(_lq));
   });
@@ -2608,8 +2621,8 @@ function CRMApp({ onSignOut }) {
 
   // ---------- действия: лиды ----------
   const moveLead = (id, stage) => {
-    upd("leads", id, (l) => ({ ...l, stage, history: [...(l.history || []), { id: uid("act"), type: "task", title: "Перемещён → " + (SALES_STAGES.find((s) => s.id === stage)?.title), when: nowISO(), done: true, owner: l.owner }] }));
-    if (stage === "won") { const l = db.leads.find((x) => x.id === id); if (l) setConvertLead({ ...l, stage }); }
+    upd("leads", id, (l) => ({ ...l, stage, history: [...(l.history || []), { id: uid("act"), type: "task", title: "Перемещён → " + stageTitleById(stage), when: nowISO(), done: true, owner: l.owner }] }));
+    if (isWonStage(stage)) { const l = db.leads.find((x) => x.id === id); if (l) setConvertLead({ ...l, stage }); }
   };
   const saveLead = (l) => db.leads.some((x) => x.id === l.id) ? upd("leads", l.id, () => l) : patch({ leads: [...db.leads, l] });
   const deleteLeads = (ids) => { const s = new Set(ids); patch({ leads: db.leads.filter((l) => !s.has(l.id)) }); };
@@ -2663,9 +2676,9 @@ function CRMApp({ onSignOut }) {
   const doImport = (items, projId) => {
     if (importKind.kind === "lead") {
       patch({ leads: [...db.leads, ...items.map((it) => ({
-        id: uid("lead"), company: it.company || "—", contact: it.contact || "", title: it.title || "",
-        phone: it.phone || "", email: it.email || "", source: SOURCES.includes(it.source) ? it.source : "Робот",
-        stage: "new", owner: userId, nextTouch: todayISO(), amount: 0, notes: it.notes || "", history: [],
+        id: newLeadId(), company: it.company || "—", contact: it.contact || "", title: it.title || "",
+        phone: it.phone || "", email: it.email || "", source: it.source || "",
+        stage: salesStages[0]?.id, owner: userId, nextTouch: todayISO(), amount: 0, notes: it.notes || "", history: [],
         bin: it.bin || "", city: it.city || "", employees: it.employees || "",
         linkedin: it.linkedin || "", linkedinCompany: it.linkedinCompany || "",
         whatsapp: it.whatsapp || "", telegram: it.telegram || "",
@@ -2694,7 +2707,7 @@ function CRMApp({ onSignOut }) {
     { label: "Компания", get: (l) => l.company }, { label: "Контакт", get: (l) => l.contact },
     { label: "Должность", get: (l) => l.title }, { label: "Телефон", get: (l) => l.phone },
     { label: "Email", get: (l) => l.email }, { label: "Источник", get: (l) => l.source },
-    { label: "Стадия", get: (l) => SALES_STAGES.find((s) => s.id === l.stage)?.title },
+    { label: "Стадия", get: (l) => salesStages.find((s) => s.id === l.stage)?.title },
     { label: "Сумма", get: (l) => l.amount }, { label: "Заметки", get: (l) => l.notes },
   ], "leads_insightlab", fmt);
 
@@ -2743,7 +2756,11 @@ function CRMApp({ onSignOut }) {
     const _revenue = _won.reduce((s, l) => s + (l.amount || 0), 0);
     const _avg = _won.length ? Math.round(_revenue / _won.length) : (_act.length ? Math.round(_pipeline / _act.length) : 0);
     const mln = (n) => n >= 1e6 ? (n / 1e6).toFixed(1).replace(/\.0$/, "") + " млн ₸" : fmtMoney(n);
-    const stageColor = (id) => ({ new: C.faint, in_work: C.indigo, demo_set: C.indigo, demo_done: C.blue, kp_sent: C.amber, negotiation: C.amber, won: C.green, lost: C.red }[id] || C.blue);
+    const stageColor = (id) => {
+      const st = salesStages.find((s) => s.id === id);
+      if (st && st.color) return st.color;
+      return ({ new: C.faint, in_work: C.indigo, demo_set: C.indigo, demo_done: C.blue, kp_sent: C.amber, negotiation: C.amber, won: C.green, lost: C.red }[id] || C.blue);
+    };
     const Kpi = ({ label, value, accent, sub, grad }) => (
       <div className="glass-card" style={{ flex: 1, minWidth: 0, padding: "20px 22px", ...(grad ? { background: "linear-gradient(150deg, color-mix(in srgb, " + C.blue + " 14%, var(--g-card)), var(--g-card))" } : null) }}>
         <div style={{ fontSize: 12.5, color: C.muted, fontWeight: 600 }}>{label}</div>
@@ -2768,7 +2785,7 @@ function CRMApp({ onSignOut }) {
             <Btn variant="ghost" size="sm" onClick={() => exportLeads("csv")}>↓ CSV</Btn>
             <Btn variant="ghost" size="sm" onClick={() => exportLeads("xlsx")}>↓ XLSX</Btn>
             <Btn variant="ghost" size="sm" onClick={() => setImportKind({ kind: "lead" })}>↑ Импорт</Btn>
-            <Btn onClick={() => setOpenLead({ id: uid("lead"), company: "", contact: "", title: "", phone: "", email: "", source: "LinkedIn", stage: "new", owner: userId, nextTouch: todayISO(), amount: 0, notes: "", history: [] })}>+ Лид</Btn>
+            <Btn onClick={() => setOpenLead({ id: newLeadId(), company: "", contact: "", title: "", phone: "", email: "", source: "", stage: salesStages[0]?.id, owner: userId, nextTouch: todayISO(), amount: 0, notes: "", history: [] })}>+ Лид</Btn>
           </div>
         </div>
         <div style={{ display: "flex", gap: 16, marginBottom: 26, flexWrap: "wrap" }}>
@@ -2778,9 +2795,9 @@ function CRMApp({ onSignOut }) {
           <Kpi label="Средний чек" value={mln(_avg)} sub="по сделкам" grad />
         </div>
         </div>
-        <KanbanBoard stages={SALES_STAGES} items={displayLeads} getStage={(l) => l.stage} renderCard={leadCard} onMove={moveLead}
+        <KanbanBoard stages={salesStages} items={displayLeads} getStage={(l) => l.stage} renderCard={leadCard} onMove={moveLead}
           dotColor={stageColor} onDelete={deleteLeads}
-          onAddToStage={(stage) => setOpenLead({ id: uid("lead"), company: "", contact: "", title: "", phone: "", email: "", source: "LinkedIn", stage, owner: userId, nextTouch: todayISO(), amount: 0, notes: "", history: [] })} />
+          onAddToStage={(stage) => setOpenLead({ id: newLeadId(), company: "", contact: "", title: "", phone: "", email: "", source: "", stage, owner: userId, nextTouch: todayISO(), amount: 0, notes: "", history: [] })} />
       </>
     );
   }
@@ -2859,7 +2876,8 @@ function CRMApp({ onSignOut }) {
 
       {/* Модалки */}
       {openLead && (
-        <LeadDetail lead={openLead} users={db.users} allLeads={db.leads}
+        <LeadDetail lead={openLead} users={db.users} allLeads={db.leads} stages={salesStages}
+          isWonStage={isWonStage}
           canEdit={isAdmin || (role === "sales" && (openLead.owner === userId || !db.leads.some((x) => x.id === openLead.id)))}
           onSave={saveLead} onClose={() => setOpenLead(null)}
           onPick={(l) => setOpenLead(l)}

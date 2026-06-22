@@ -1,8 +1,6 @@
 // ============================================================================
-// api.js — мультитенантная версия (NEWPJ). ШАГ A.
-// Вход + профиль + компания + проверка подписки.
-// loadDb грузит текущего пользователя (чтобы CRMApp не падал).
-// Остальные данные (лиды/проекты/стадии) подключим следующим шагом.
+// api.js — мультитенантная версия (NEWPJ). ШАГ B.
+// Вход + подписка + загрузка СТАДИЙ и ЛИДОВ компании + сохранение.
 // ============================================================================
 import { supabase } from "./supabase";
 
@@ -16,8 +14,7 @@ export const auth = {
   signOut: () => supabase.auth.signOut(),
 };
 
-// ---------- контекст пользователя: профиль + компания + подписка ----------
-// { profile, company, blocked, reason, isSuperadmin } | null
+// ---------- контекст: профиль + компания + подписка ----------
 export async function loadContext() {
   const { data: au } = await supabase.auth.getUser();
   const authUser = au?.user;
@@ -25,44 +22,56 @@ export async function loadContext() {
 
   const { data: profile, error: pErr } = await supabase
     .from("profiles").select("*").eq("id", authUser.id).single();
-
   if (pErr || !profile) {
     return { profile: null, company: null, blocked: false, reason: "no-profile", authUser };
   }
-
   if (profile.role === "superadmin") {
     return { profile, company: null, blocked: false, reason: null, authUser, isSuperadmin: true };
   }
-
   if (!profile.company_id) {
     return { profile, company: null, blocked: true, reason: "no-company", authUser };
   }
-
   const { data: company } = await supabase
     .from("companies").select("*").eq("id", profile.company_id).single();
-
   if (!company) {
     return { profile, company: null, blocked: true, reason: "no-company", authUser };
   }
-
   let blocked = false, reason = null;
   if (!company.active) { blocked = true; reason = "inactive"; }
   else if (company.subscription_until) {
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    const until = new Date(company.subscription_until);
-    if (until < today) { blocked = true; reason = "expired"; }
+    if (new Date(company.subscription_until) < today) { blocked = true; reason = "expired"; }
   }
-
   return { profile, company, blocked, reason, authUser, isSuperadmin: false };
 }
 
-// ============================================================================
-// loadDb — ШАГ A: грузим только текущего пользователя в users.
-// Роль маппим в старые значения, чтобы навигация CRMApp работала:
-//   superadmin/admin -> admin (видит все разделы)
-//   остальные -> sales
-// Лиды/проекты/прочее пока пустые (подключим в Шаге B).
-// ============================================================================
+// ---------- мапперы лида (БД <-> приложение) ----------
+const fromLead = (r) => ({
+  id: r.id, stage: r.stage_id, stageId: r.stage_id, pipelineId: r.pipeline_id,
+  company: r.name || "", contact: r.contact || "", title: r.title || "",
+  phone: r.phone || "", email: r.email || "", source: r.source || "",
+  amount: Number(r.amount) || 0, owner: r.owner, nextTouch: r.next_touch,
+  notes: r.notes || "", history: r.history || [],
+  whatsapp: r.whatsapp || "", telegram: r.telegram || "", instagram: r.instagram || "",
+  linkedin: r.linkedin || "", linkedinCompany: r.linkedin_company || "",
+  website: r.website || "", bin: r.bin || "", city: r.city || "", employees: r.employees || "",
+  custom: r.custom || {},
+});
+
+const toLeadRow = (l, companyId, pipelineId) => ({
+  id: l.id, company_id: companyId, pipeline_id: l.pipelineId || pipelineId || null,
+  stage_id: l.stage || l.stageId || null,
+  name: l.company || "", contact: l.contact || "", title: l.title || "",
+  phone: l.phone || "", email: l.email || "", source: l.source || "",
+  amount: l.amount || 0, owner: l.owner || null, next_touch: l.nextTouch || null,
+  notes: l.notes || "", history: l.history || [],
+  whatsapp: l.whatsapp || null, telegram: l.telegram || null, instagram: l.instagram || null,
+  linkedin: l.linkedin || null, linkedin_company: l.linkedinCompany || null,
+  website: l.website || null, bin: l.bin || null, city: l.city || null, employees: l.employees || null,
+  custom: l.custom || {},
+});
+
+// ---------- загрузка данных компании (стадии + лиды + юзеры) ----------
 export async function loadDb() {
   const { data: au } = await supabase.auth.getUser();
   const authUser = au?.user;
@@ -70,120 +79,146 @@ export async function loadDb() {
 
   const { data: profile } = await supabase
     .from("profiles").select("*").eq("id", authUser.id).single();
+  if (!profile || !profile.company_id) {
+    // суперадмин или без компании — пустая заглушка
+    return { users: [], leads: [], stages: [], pipelines: [], projects: [],
+             respondents: [], notes: {}, tasks: [], reminders: [], __me: authUser.id, __company: null };
+  }
 
-  // маппинг новой роли в старую систему навигации InsightLab
-  const mapRole = (r) => {
-    if (r === "superadmin" || r === "admin") return "admin";
-    if (r === "manager") return "sales";
-    return "sales";
-  };
+  const companyId = profile.company_id;
 
-  const me = profile ? {
-    id: profile.id,
-    name: profile.name || profile.email || "Пользователь",
-    role: mapRole(profile.role),
-    telegram_id: "",
-    email: profile.email || "",
-    active: profile.active !== false,
-  } : {
-    id: authUser.id, name: authUser.email || "Пользователь",
-    role: "admin", telegram_id: "", email: authUser.email || "", active: true,
-  };
+  // грузим параллельно: профили компании, стадии, воронки, лиды
+  const [profilesRes, stagesRes, pipesRes, leadsRes] = await Promise.all([
+    supabase.from("profiles").select("*").eq("company_id", companyId),
+    supabase.from("stages").select("*").eq("company_id", companyId).order("order_index"),
+    supabase.from("pipelines").select("*").eq("company_id", companyId),
+    supabase.from("leads").select("*").eq("company_id", companyId).order("created_at"),
+  ]);
+
+  const mapRole = (r) => (r === "superadmin" || r === "admin") ? "admin" : "sales";
+  const users = (profilesRes.data || []).map((p) => ({
+    id: p.id, name: p.name || p.email || "Сотрудник", role: mapRole(p.role),
+    telegram_id: "", email: p.email || "", active: p.active !== false,
+  }));
+
+  const stages = (stagesRes.data || []).map((s) => ({
+    id: s.id, title: s.title, color: s.color, order: s.order_index,
+    isWon: s.is_won, isLost: s.is_lost,
+  }));
+
+  const pipelines = (pipesRes.data || []).map((p) => ({
+    id: p.id, name: p.name, type: p.type, isDefault: p.is_default,
+  }));
+
+  const leads = (leadsRes.data || []).map(fromLead);
 
   return {
-    users: [me],
-    leads: [], projects: [], respondents: [],
-    notes: {}, tasks: [], reminders: [],
-    __me: me.id,
+    users, stages, pipelines, leads,
+    projects: [], respondents: [], notes: {}, tasks: [], reminders: [],
+    __me: authUser.id, __company: companyId,
+    __defaultPipeline: (pipelines.find((p) => p.type === "sales" && p.isDefault) || pipelines[0])?.id || null,
   };
 }
 
-export async function persistDb(_next, _prev) {
-  // Шаг A: запись отключена. Подключим в Шаге B.
+// ---------- сохранение лидов (диф) ----------
+function diff(prev, next) {
+  const prevMap = new Map((prev || []).map((x) => [x.id, x]));
+  const nextMap = new Map((next || []).map((x) => [x.id, x]));
+  const upserts = [], deletes = [];
+  for (const [id, item] of nextMap) {
+    const before = prevMap.get(id);
+    if (!before || JSON.stringify(before) !== JSON.stringify(item)) upserts.push(item);
+  }
+  for (const id of prevMap.keys()) if (!nextMap.has(id)) deletes.push(id);
+  return { upserts, deletes };
+}
+
+export async function persistDb(next, prev) {
+  if (!prev || !next) return;
+  const companyId = next.__company;
+  if (!companyId) return; // суперадмин — не пишем
+
+  const pipelineId = next.__defaultPipeline;
+  const { upserts, deletes } = diff(prev.leads, next.leads);
+
+  if (upserts.length) {
+    const rows = upserts.map((l) => toLeadRow(l, companyId, pipelineId));
+    const { error } = await supabase.from("leads").upsert(rows);
+    if (error) console.warn("[persist] leads upsert:", error.message);
+  }
+  if (deletes.length) {
+    const { error } = await supabase.from("leads").delete().in("id", deletes);
+    if (error) console.warn("[persist] leads delete:", error.message);
+  }
+
+  // профили (изменения ролей/имён)
+  const { upserts: uUp } = diff(prev.users, next.users);
+  if (uUp.length) {
+    const rows = uUp.map((u) => ({
+      id: u.id, name: u.name, active: u.active,
+    }));
+    const { error } = await supabase.from("profiles").upsert(rows);
+    if (error) console.warn("[persist] profiles:", error.message);
+  }
 }
 
 export async function resetDb() { /* noop */ }
 
-// integrations — заглушки (раздел «Интеграции» не должен падать)
-export const integrations = {
-  listTokens: async () => [],
-  createToken: async () => { throw new Error("Интеграции подключим на следующем шаге"); },
-  revokeToken: async () => {},
-  deleteToken: async () => {},
-  listWebhooks: async () => [],
-  createWebhook: async () => { throw new Error("Интеграции подключим на следующем шаге"); },
-  deleteWebhook: async () => {},
-  listAudit: async () => [],
-  listDeliveries: async () => [],
-};
+// ---------- создание нового лида (с генерацией id) ----------
+export function newLeadId() {
+  return crypto.randomUUID ? crypto.randomUUID() :
+    "lead_" + Date.now() + "_" + Math.random().toString(16).slice(2);
+}
 
 // ============================================================================
-// СУПЕРАДМИН: управление компаниями (Этап 2 — суперадминка)
+// СУПЕРАДМИН: управление компаниями
 // ============================================================================
 export const superadmin = {
-  // список всех компаний + счётчик пользователей
   listCompanies: async () => {
     const { data: companies, error } = await supabase
-      .from("companies")
-      .select("*")
-      .order("created_at", { ascending: false });
+      .from("companies").select("*").order("created_at", { ascending: false });
     if (error) throw error;
-
-    // считаем пользователей по компаниям
-    const { data: profiles } = await supabase
-      .from("profiles")
-      .select("company_id");
+    const { data: profiles } = await supabase.from("profiles").select("company_id");
     const counts = {};
-    (profiles || []).forEach((p) => {
-      if (p.company_id) counts[p.company_id] = (counts[p.company_id] || 0) + 1;
-    });
-
+    (profiles || []).forEach((p) => { if (p.company_id) counts[p.company_id] = (counts[p.company_id] || 0) + 1; });
     return (companies || []).map((c) => ({ ...c, userCount: counts[c.id] || 0 }));
   },
-
-  // создать компанию + руководителя (через Edge Function)
   createCompany: async (payload) => {
     const { data: sess } = await supabase.auth.getSession();
     const token = sess?.session?.access_token;
     const url = supabase.supabaseUrl + "/functions/v1/admin-create-company";
     const res = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: "Bearer " + token,
-      },
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
       body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Ошибка создания компании");
     return data;
   },
-
-  // включить/выключить компанию
   toggleActive: async (companyId, active) => {
-    const { error } = await supabase
-      .from("companies").update({ active }).eq("id", companyId);
+    const { error } = await supabase.from("companies").update({ active }).eq("id", companyId);
     if (error) throw error;
   },
-
-  // продлить/изменить подписку
   setSubscription: async (companyId, untilDate) => {
-    const { error } = await supabase
-      .from("companies").update({ subscription_until: untilDate }).eq("id", companyId);
+    const { error } = await supabase.from("companies").update({ subscription_until: untilDate }).eq("id", companyId);
     if (error) throw error;
   },
-
-  // изменить лимит пользователей
   setMaxUsers: async (companyId, maxUsers) => {
-    const { error } = await supabase
-      .from("companies").update({ max_users: maxUsers }).eq("id", companyId);
+    const { error } = await supabase.from("companies").update({ max_users: maxUsers }).eq("id", companyId);
     if (error) throw error;
   },
-
-  // удалить компанию (со всеми данными — каскадом)
   deleteCompany: async (companyId) => {
-    const { error } = await supabase
-      .from("companies").delete().eq("id", companyId);
+    const { error } = await supabase.from("companies").delete().eq("id", companyId);
     if (error) throw error;
   },
+};
+
+// integrations — заглушки (подключим в Этапе 6)
+export const integrations = {
+  listTokens: async () => [],
+  createToken: async () => { throw new Error("Интеграции — Этап 6"); },
+  revokeToken: async () => {}, deleteToken: async () => {},
+  listWebhooks: async () => [], createWebhook: async () => { throw new Error("Интеграции — Этап 6"); },
+  deleteWebhook: async () => {}, listAudit: async () => [], listDeliveries: async () => [],
 };
