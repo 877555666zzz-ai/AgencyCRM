@@ -2086,18 +2086,28 @@ function Analytics({ role, user, leads, projects, respondents, users }) {
 }
 
 // ---------- Управление пользователями (admin) ----------
+const TEAM_ROLES = { admin: "Руководитель", manager: "Менеджер", member: "Сотрудник" };
+
 function UsersView({ users, onSave }) {
+  const [showAdd, setShowAdd] = useState(false);
   const [edit, setEdit] = useState(null);
+  const [err, setErr] = useState("");
+  const [refresh, setRefresh] = useState(0);
+
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 23, fontWeight: 700, letterSpacing: -0.5 }}>Пользователи</h2>
-        <Btn onClick={() => setEdit({ id: uid("u"), name: "", role: "interviewer", telegram_id: "", email: "", active: true })}>+ Добавить</Btn>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 23, fontWeight: 700, letterSpacing: -0.5 }}>Сотрудники</h2>
+          <div style={{ fontSize: 13.5, color: C.muted, marginTop: 4 }}>{users.length} в команде</div>
+        </div>
+        <Btn onClick={() => { setErr(""); setShowAdd(true); }}>+ Добавить сотрудника</Btn>
       </div>
+      {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 12 }}>{err}</div>}
       <Panel pad={0} style={{ overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr style={{ background: C.panel }}>
-            {["Имя", "Роль", "Telegram", "Email", "Статус", ""].map((h) => (
+            {["Имя", "Роль", "Email", "Статус", ""].map((h) => (
               <th key={h} style={{ textAlign: "left", padding: "12px 16px", fontSize: 12, fontWeight: 700, color: C.muted }}>{h}</th>
             ))}
           </tr></thead>
@@ -2105,8 +2115,7 @@ function UsersView({ users, onSave }) {
             {users.map((u) => (
               <tr key={u.id} style={{ borderTop: "1px solid " + C.border }}>
                 <td style={{ padding: "12px 16px", fontWeight: 600, fontSize: 13.5 }}>{u.name}</td>
-                <td style={{ padding: "12px 16px" }}><Badge>{ROLES[u.role]}</Badge></td>
-                <td style={{ padding: "12px 16px", fontSize: 13, color: C.blueDark }}>{u.telegram_id}</td>
+                <td style={{ padding: "12px 16px" }}><Badge>{TEAM_ROLES[u._dbrole || u.role] || ROLES[u.role] || u.role}</Badge></td>
                 <td style={{ padding: "12px 16px", fontSize: 13, color: C.muted }}>{u.email}</td>
                 <td style={{ padding: "12px 16px" }}>
                   <Badge color={u.active ? C.green : C.faint} bg={u.active ? "#E7F6EE" : C.panel}>{u.active ? "активен" : "выключен"}</Badge>
@@ -2117,21 +2126,53 @@ function UsersView({ users, onSave }) {
           </tbody>
         </table>
       </Panel>
+      {showAdd && <AddEmployeeModal onClose={() => setShowAdd(false)} onDone={() => { setShowAdd(false); window.location.reload(); }} onError={setErr} />}
       {edit && <UserEdit user={edit} onClose={() => setEdit(null)} onSave={(u) => { onSave(u); setEdit(null); }} />}
     </div>
   );
 }
+
+function AddEmployeeModal({ onClose, onDone, onError }) {
+  const [f, setF] = useState({ name: "", email: "", password: "", role: "member" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
+
+  const add = async () => {
+    setErr(""); setBusy(true);
+    try {
+      const { team } = await import("./lib/api");
+      await team.addEmployee({ name: f.name, email: f.email.trim(), password: f.password, role: f.role });
+      onDone();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <Modal open onClose={onClose} width={460} title="Новый сотрудник"
+      footer={<><Btn variant="ghost" onClick={onClose}>Отмена</Btn>
+        <Btn disabled={busy || !f.email || !f.password} onClick={add}>{busy ? "Добавляем…" : "Добавить"}</Btn></>}>
+      <Field label="Имя"><Input value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="Имя Фамилия" /></Field>
+      <Field label="Email (логин)"><Input type="email" value={f.email} onChange={(e) => set("email", e.target.value)} placeholder="employee@studio.kz" /></Field>
+      <Field label="Пароль"><Input value={f.password} onChange={(e) => set("password", e.target.value)} placeholder="мин. 6 символов" /></Field>
+      <Field label="Роль">
+        <Select value={f.role} options={Object.entries(TEAM_ROLES).map(([v, l]) => ({ value: v, label: l }))} onChange={(e) => set("role", e.target.value)} />
+      </Field>
+      {err && <div style={{ color: C.red, fontSize: 13, marginTop: 8 }}>{err}</div>}
+      <div style={{ fontSize: 12, color: C.faint, marginTop: 8 }}>Сотрудник сможет сразу войти с этим email и паролем.</div>
+    </Modal>
+  );
+}
+
 function UserEdit({ user, onClose, onSave }) {
   const [u, setU] = useState({ ...user });
   const set = (k, v) => setU((p) => ({ ...p, [k]: v }));
   return (
-    <Modal open onClose={onClose} width={460} title={user.name ? "Редактирование" : "Новый пользователь"}
+    <Modal open onClose={onClose} width={460} title="Редактирование сотрудника"
       footer={<><Btn variant="ghost" onClick={onClose}>Отмена</Btn><Btn onClick={() => onSave(u)}>Сохранить</Btn></>}>
       <Field label="Имя"><Input value={u.name} onChange={(e) => set("name", e.target.value)} /></Field>
-      <Field label="Роль"><Select value={u.role} options={Object.entries(ROLES).map(([v, l]) => ({ value: v, label: l }))} onChange={(e) => set("role", e.target.value)} /></Field>
-      <Field label="Telegram ID" hint="на этот @username приходят напоминания"><Input value={u.telegram_id} onChange={(e) => set("telegram_id", e.target.value)} /></Field>
-      <Field label="Email"><Input value={u.email} onChange={(e) => set("email", e.target.value)} /></Field>
-      <label style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer" }}>
+      <Field label="Email"><Input value={u.email} disabled /></Field>
+      <label style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", marginTop: 8 }}>
         <input type="checkbox" checked={u.active} onChange={(e) => set("active", e.target.checked)} />
         <span style={{ fontSize: 13.5, fontWeight: 600 }}>Активен</span>
       </label>
@@ -2633,7 +2674,10 @@ function ProjectDetail({ project, stages, users, leads, canEdit, onSave, onClose
 function CRMApp({ onSignOut }) {
   const [db, setDb] = useState(null);
   const [userId, setUserId] = useState(null);
-  const [page, setPage] = useState("sales");
+  const [page, setPage] = useState(() => {
+    try { return localStorage.getItem("crm_page") || "sales"; } catch { return "sales"; }
+  });
+  useEffect(() => { try { localStorage.setItem("crm_page", page); } catch {} }, [page]);
 
   // навигационное/модальное состояние
   const [openLead, setOpenLead] = useState(null);

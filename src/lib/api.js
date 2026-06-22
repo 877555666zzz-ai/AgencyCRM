@@ -237,6 +237,36 @@ export const projectComments = {
 // ============================================================================
 // СУПЕРАДМИН: управление компаниями
 // ============================================================================
+// ============================================================================
+// КОМАНДА: управление сотрудниками компании (Этап 5)
+// ============================================================================
+export const team = {
+  // добавить сотрудника (через Edge Function)
+  addEmployee: async (payload) => {
+    const { data: sess } = await supabase.auth.getSession();
+    const token = sess?.session?.access_token;
+    const url = supabase.supabaseUrl + "/functions/v1/add-employee";
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Ошибка добавления сотрудника");
+    return data;
+  },
+  // изменить роль/имя/активность
+  updateMember: async (id, fields) => {
+    const { error } = await supabase.from("profiles").update(fields).eq("id", id);
+    if (error) throw error;
+  },
+  // удалить сотрудника (профиль; auth-юзер остаётся, но без доступа к компании)
+  removeMember: async (id) => {
+    const { error } = await supabase.from("profiles").update({ company_id: null, active: false }).eq("id", id);
+    if (error) throw error;
+  },
+};
+
 export const superadmin = {
   listCompanies: async () => {
     const { data: companies, error } = await supabase
