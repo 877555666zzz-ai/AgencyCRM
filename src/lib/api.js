@@ -283,6 +283,17 @@ export const branding = {
     const { error } = await supabase.from("companies").update(fields).eq("id", companyId);
     if (error) throw error;
   },
+  // загрузка файла логотипа в Storage → возвращает публичный URL
+  uploadLogo: async (companyId, file) => {
+    const ext = (file.name.split(".").pop() || "png").toLowerCase();
+    const path = `${companyId}/logo_${Date.now()}.${ext}`;
+    const { error: upErr } = await supabase.storage.from("logos").upload(path, file, {
+      upsert: true, contentType: file.type || "image/png",
+    });
+    if (upErr) throw upErr;
+    const { data } = supabase.storage.from("logos").getPublicUrl(path);
+    return data.publicUrl;
+  },
 };
 
 // ============================================================================

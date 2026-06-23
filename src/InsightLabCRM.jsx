@@ -2677,8 +2677,24 @@ function BrandingEditor({ company, brandName, logoUrl, onReload }) {
   const [name, setName] = useState(brandName || "");
   const [logo, setLogo] = useState(logoUrl || "");
   const [busy, setBusy] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState("");
   const [ok, setOk] = useState(false);
+  const fileRef = useRef(null);
+
+  const onPickFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { setErr("Выберите изображение (png, jpg, svg)"); return; }
+    if (file.size > 2 * 1024 * 1024) { setErr("Файл больше 2 МБ — выберите меньше"); return; }
+    setUploading(true); setErr("");
+    try {
+      const { branding } = await import("./lib/api");
+      const url = await branding.uploadLogo(company, file);
+      setLogo(url);
+    } catch (e2) { setErr("Ошибка загрузки: " + e2.message); }
+    setUploading(false);
+  };
 
   const save = async () => {
     setBusy(true); setErr(""); setOk(false);
@@ -2700,8 +2716,20 @@ function BrandingEditor({ company, brandName, logoUrl, onReload }) {
         <Field label="Название (бренд)"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Моя Студия" /></Field>
         <Field label="Ссылка на логотип (URL)"><Input value={logo} onChange={(e) => setLogo(e.target.value)} placeholder="https://…/logo.png" /></Field>
       </div>
+
+      {/* загрузка файлом */}
+      <div style={{ marginTop: 10 }}>
+        <input ref={fileRef} type="file" accept="image/*" onChange={onPickFile} style={{ display: "none" }} />
+        <button onClick={() => fileRef.current?.click()} disabled={uploading}
+          style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "9px 14px", borderRadius: 9,
+            border: "1px dashed " + C.border, background: C.surface, color: C.muted, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: FONT }}>
+          {uploading ? "Загрузка…" : "⬆ Загрузить файл логотипа"}
+        </button>
+        <span style={{ fontSize: 11.5, color: C.faint, marginLeft: 10 }}>png, jpg, svg · до 2 МБ</span>
+      </div>
+
       {logo && (
-        <div style={{ marginTop: 8, marginBottom: 12 }}>
+        <div style={{ marginTop: 12, marginBottom: 12 }}>
           <div style={{ fontSize: 12, color: C.faint, marginBottom: 6 }}>Предпросмотр:</div>
           <img src={logo} alt="logo" style={{ height: 32, maxWidth: 180, objectFit: "contain" }} onError={(e) => { e.target.style.display = "none"; }} />
         </div>
