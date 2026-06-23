@@ -1077,7 +1077,7 @@ function CopyField({ label, value }) {
 }
 
 // ---------- Карточка лида (полная, с историей) ----------
-function LeadDetail({ lead, users, allLeads = [], stages = [], isWonStage, canEdit, canSeeMoney = true, customFields = [], onSave, onClose, onConvert, onPick }) {
+function LeadDetail({ lead, users, allLeads = [], stages = [], isWonStage, canEdit, canSeeMoney = true, canSeeField = () => true, customFields = [], onSave, onClose, onConvert, onPick }) {
   const [l, setL] = useState({ ...lead });
   const [act, setAct] = useState({ type: "call", title: "" });
   const [q, setQ] = useState("");
@@ -1178,11 +1178,11 @@ function LeadDetail({ lead, users, allLeads = [], stages = [], isWonStage, canEd
         <Field label="Руководитель"><Input value={l.contact} disabled={!canEdit} onChange={(e) => set("contact", e.target.value)} /></Field>
         <Field label="Должность / роль"><Input value={l.title} disabled={!canEdit} onChange={(e) => set("title", e.target.value)} /></Field>
         <Field label="Размер компании"><Input value={l.employees || ""} disabled={!canEdit} onChange={(e) => set("employees", e.target.value)} /></Field>
-        <Field label="Источник"><Select disabled={!canEdit} value={l.source} options={SOURCES} onChange={(e) => set("source", e.target.value)} /></Field>
+        {canSeeField("source") && <Field label="Источник"><Select disabled={!canEdit} value={l.source} options={SOURCES} onChange={(e) => set("source", e.target.value)} /></Field>}
         <Field label="Стадия"><Select disabled={!canEdit} value={l.stage} options={stageList.map((s) => ({ value: s.id, label: s.title }))} onChange={(e) => set("stage", e.target.value)} /></Field>
         <Field label="Ответственный"><Select disabled={!canEdit} value={l.owner} options={users.filter((u) => u.role === "sales" || u.role === "admin").map((u) => ({ value: u.id, label: u.name }))} onChange={(e) => set("owner", e.target.value)} /></Field>
         <Field label="Дата следующего касания"><Input type="date" value={l.nextTouch || ""} disabled={!canEdit} onChange={(e) => set("nextTouch", e.target.value)} /></Field>
-        {canSeeMoney && <Field label="Оценочная сумма сделки, ₸"><Input type="number" value={l.amount} disabled={!canEdit} onChange={(e) => set("amount", +e.target.value)} /></Field>}
+        {canSeeMoney && canSeeField("amount") && <Field label="Оценочная сумма сделки, ₸"><Input type="number" value={l.amount} disabled={!canEdit} onChange={(e) => set("amount", +e.target.value)} /></Field>}
       </div>
 
       {/* ----- Доп. поля (кастомные) ----- */}
@@ -1255,7 +1255,7 @@ function LeadDetail({ lead, users, allLeads = [], stages = [], isWonStage, canEd
         )}
       </div>
 
-      <MessageComposer lead={l} value={l.notes} disabled={!canEdit} onChange={(v) => set("notes", v)} />
+      {canSeeField("notes") && <MessageComposer lead={l} value={l.notes} disabled={!canEdit} onChange={(v) => set("notes", v)} />}
 
       <div style={{ marginTop: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 10 }}>История активностей</div>
@@ -2530,7 +2530,7 @@ function ApiLogPanel() {
   );
 }
 
-function SettingsView({ onReset, isAdmin, company, salesPipeline, projectPipeline, salesStages = [], projStages = [], brandName, logoUrl, customFields = [], inboundToken, leadsForCount = [], projectsForCount = [], onReload }) {
+function SettingsView({ onReset, isAdmin, company, salesPipeline, projectPipeline, salesStages = [], projStages = [], brandName, logoUrl, customFields = [], inboundToken, leadsForCount = [], projectsForCount = [], fieldConfigs = [], onReload }) {
   if (!isAdmin) {
     return (
       <div>
@@ -2543,6 +2543,7 @@ function SettingsView({ onReset, isAdmin, company, salesPipeline, projectPipelin
     <div>
       <h2 style={{ margin: "0 0 20px", fontSize: 23, fontWeight: 700, letterSpacing: -0.5 }}>Настройки</h2>
       <BrandingEditor company={company} brandName={brandName} logoUrl={logoUrl} onReload={onReload} />
+      <FieldAccessEditor company={company} fieldConfigs={fieldConfigs} onReload={onReload} />
       <InboundPanel token={inboundToken} />
       <StagesEditor title="Воронка продаж" company={company} pipelineId={salesPipeline} stages={salesStages} onReload={onReload} allowFlags countOnStage={(sid) => (leadsForCount || []).filter((l) => l.stage === sid).length} />
       <StagesEditor title="Воронка проектов" company={company} pipelineId={projectPipeline} stages={projStages} onReload={onReload} countOnStage={(sid) => (projectsForCount || []).filter((p) => p.stage === sid).length} />
@@ -2672,6 +2673,87 @@ function CustomFieldsEditor({ company, entity, title, fields, onReload }) {
 }
 
 const STAGE_COLORS = ["#94a3b8", "#6366f1", "#8b5cf6", "#a855f7", "#3b82f6", "#22c55e", "#ef4444", "#f59e0b", "#06b6d4", "#ec4899"];
+
+// поля лида, для которых можно настроить видимость по ролям
+const RBAC_FIELDS = [
+  { key: "amount", label: "Сумма сделки" },
+  { key: "phone", label: "Телефон" },
+  { key: "email", label: "Email" },
+  { key: "notes", label: "Заметки / сообщение" },
+  { key: "source", label: "Источник" },
+];
+const ROLE_LIST = [
+  { key: "admin", label: "Руководитель" },
+  { key: "manager", label: "Менеджер" },
+  { key: "member", label: "Сотрудник" },
+];
+
+function FieldAccessEditor({ company, fieldConfigs = [], onReload }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  // текущее состояние: для каждого поля — set ролей, которые видят (пусто = все)
+  const cfgFor = (key) => fieldConfigs.find((f) => f.entity === "lead" && f.fieldKey === key);
+  const roleSees = (fieldKey, role) => {
+    const cfg = cfgFor(fieldKey);
+    if (!cfg || !cfg.rolesCanSee || cfg.rolesCanSee.length === 0) return true; // нет ограничения = видят все
+    return cfg.rolesCanSee.includes(role);
+  };
+
+  const toggle = async (fieldKey, label, role) => {
+    setBusy(true); setErr("");
+    try {
+      const { fieldAccess } = await import("./lib/api");
+      const cfg = cfgFor(fieldKey);
+      // текущий список разрешённых ролей; если пусто — значит все три
+      let allowed = (cfg && cfg.rolesCanSee && cfg.rolesCanSee.length) ? [...cfg.rolesCanSee] : ROLE_LIST.map((r) => r.key);
+      if (allowed.includes(role)) allowed = allowed.filter((r) => r !== role);
+      else allowed.push(role);
+      // если разрешены все три — это "нет ограничения" (пустой массив)
+      const isAll = ROLE_LIST.every((r) => allowed.includes(r.key));
+      await fieldAccess.set(company, "lead", fieldKey, label, isAll ? [] : allowed);
+      onReload();
+    } catch (e) { setErr(e.message); setBusy(false); }
+  };
+
+  return (
+    <Panel style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>Видимость полей по ролям</div>
+      <div style={{ fontSize: 12.5, color: C.faint, marginBottom: 14 }}>Отметьте, какие роли видят какие поля в карточке лида. Снятая галочка скроет поле у этой роли.</div>
+      {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 10 }}>{err}</div>}
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5 }}>
+          <thead>
+            <tr style={{ borderBottom: "1px solid " + C.border }}>
+              <th style={{ textAlign: "left", padding: "8px 10px", fontWeight: 700, color: C.muted }}>Поле</th>
+              {ROLE_LIST.map((r) => (
+                <th key={r.key} style={{ textAlign: "center", padding: "8px 10px", fontWeight: 700, color: C.muted }}>{r.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {RBAC_FIELDS.map((f) => (
+              <tr key={f.key} style={{ borderBottom: "1px solid " + C.border }}>
+                <td style={{ padding: "10px", fontWeight: 600 }}>{f.label}</td>
+                {ROLE_LIST.map((r) => (
+                  <td key={r.key} style={{ textAlign: "center", padding: "10px" }}>
+                    {r.key === "admin" ? (
+                      <span title="Руководитель видит всё" style={{ color: C.faint, fontSize: 12 }}>всегда</span>
+                    ) : (
+                      <input type="checkbox" disabled={busy} checked={roleSees(f.key, r.key)}
+                        onChange={() => toggle(f.key, f.label, r.key)}
+                        style={{ width: 16, height: 16, cursor: "pointer" }} />
+                    )}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Panel>
+  );
+}
 
 function BrandingEditor({ company, brandName, logoUrl, onReload }) {
   const [name, setName] = useState(brandName || "");
@@ -3073,6 +3155,13 @@ function CRMApp({ onSignOut }) {
   // видимость денег: руководитель (admin) и менеджер (manager) видят суммы; сотрудник (member) — нет
   const myDbRole = user.dbRole || (isAdmin ? "admin" : "member");
   const canSeeMoney = myDbRole === "admin" || myDbRole === "manager";
+  // видимость поля по роли (Задача 7): admin видит всё; иначе смотрим field_configs
+  const canSeeField = (fieldKey) => {
+    if (myDbRole === "admin") return true;
+    const cfg = (db.__fieldConfigs || []).find((f) => f.entity === "lead" && f.fieldKey === fieldKey);
+    if (!cfg || !cfg.rolesCanSee || cfg.rolesCanSee.length === 0) return true; // нет ограничения
+    return cfg.rolesCanSee.includes(myDbRole);
+  };
 
   const patch = (changes) => setDb((d) => ({ ...d, ...changes }));
   const upd = (key, id, fn) => setDb((d) => ({ ...d, [key]: d[key].map((x) => (x.id === id ? fn(x) : x)) }));
@@ -3418,6 +3507,7 @@ function CRMApp({ onSignOut }) {
     salesStages={salesStages} projStages={projStages} brandName={db.__brandName} logoUrl={db.__logoUrl}
     customFields={db.__customFields || []} inboundToken={db.__inboundToken}
     leadsForCount={db.leads} projectsForCount={db.projects}
+    fieldConfigs={db.__fieldConfigs || []}
     onReload={() => window.location.reload()} />;
 
   function saveLeadUser(u) {
@@ -3443,7 +3533,7 @@ function CRMApp({ onSignOut }) {
       {/* Модалки */}
       {openLead && (
         <LeadDetail lead={openLead} users={db.users} allLeads={db.leads} stages={salesStages}
-          isWonStage={isWonStage} canSeeMoney={canSeeMoney} customFields={(db.__customFields || []).filter((f) => f.entity === "lead")}
+          isWonStage={isWonStage} canSeeMoney={canSeeMoney} canSeeField={canSeeField} customFields={(db.__customFields || []).filter((f) => f.entity === "lead")}
           canEdit={isAdmin || (role === "sales" && (openLead.owner === userId || !db.leads.some((x) => x.id === openLead.id)))}
           onSave={saveLead} onClose={() => setOpenLead(null)}
           onPick={(l) => setOpenLead(l)}

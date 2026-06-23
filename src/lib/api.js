@@ -110,7 +110,7 @@ export async function loadDb() {
   const companyId = profile.company_id;
 
   // грузим параллельно: профили компании, стадии, воронки, лиды
-  const [profilesRes, stagesRes, pipesRes, leadsRes, projectsRes, companyRes, cfRes] = await Promise.all([
+  const [profilesRes, stagesRes, pipesRes, leadsRes, projectsRes, companyRes, cfRes, fcRes] = await Promise.all([
     supabase.from("profiles").select("*").eq("company_id", companyId),
     supabase.from("stages").select("*").eq("company_id", companyId).order("order_index"),
     supabase.from("pipelines").select("*").eq("company_id", companyId),
@@ -118,6 +118,7 @@ export async function loadDb() {
     supabase.from("projects").select("*").eq("company_id", companyId).order("created_at"),
     supabase.from("companies").select("*").eq("id", companyId).single(),
     supabase.from("custom_fields").select("*").eq("company_id", companyId).order("order_index"),
+    supabase.from("field_configs").select("*").eq("company_id", companyId),
   ]);
 
   const mapRole = (r) => (r === "superadmin" || r === "admin") ? "admin" : "sales";
@@ -150,6 +151,10 @@ export async function loadDb() {
     __customFields: (cfRes.data || []).map((c) => ({
       id: c.id, entity: c.entity, key: c.key, label: c.label, type: c.type,
       options: c.options || [], order: c.order_index,
+    })),
+    __fieldConfigs: (fcRes.data || []).map((f) => ({
+      entity: f.entity, fieldKey: f.field_key, label: f.label,
+      rolesCanSee: f.roles_can_see || [], visible: f.visible !== false,
     })),
     __defaultPipeline: (pipelines.find((p) => p.type === "sales" && p.isDefault) || pipelines.find((p) => p.type === "sales") || pipelines[0])?.id || null,
     __projectPipeline: (pipelines.find((p) => p.type === "projects" && p.isDefault) || pipelines.find((p) => p.type === "projects"))?.id || null,
@@ -258,6 +263,26 @@ export const projectComments = {
 // ============================================================================
 // КАСТОМНЫЕ ПОЛЯ (Этап 3 ч.3)
 // ============================================================================
+// ============================================================================
+// ПРАВА НА ПОЛЯ по ролям (Задача 7 — RBAC per field)
+// ============================================================================
+// roles_can_see: пустой массив = видят все. Иначе — только перечисленные роли.
+export const fieldAccess = {
+  // сохранить настройку поля: какие роли видят
+  set: async (companyId, entity, fieldKey, label, rolesCanSee) => {
+    const { error } = await supabase.from("field_configs").upsert({
+      company_id: companyId, entity, field_key: fieldKey, label,
+      roles_can_see: rolesCanSee, visible: true,
+    }, { onConflict: "company_id,entity,field_key" });
+    if (error) throw error;
+  },
+  reset: async (companyId, entity, fieldKey) => {
+    const { error } = await supabase.from("field_configs")
+      .delete().eq("company_id", companyId).eq("entity", entity).eq("field_key", fieldKey);
+    if (error) throw error;
+  },
+};
+
 export const customFields = {
   add: async (companyId, entity, label, type, options, orderIndex) => {
     const key = "cf_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
