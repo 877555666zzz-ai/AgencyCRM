@@ -3,14 +3,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { auth } from "./lib/api";
 import NocturneBackground from "./components/NocturneBackground";
 import { useTheme, ThemeToggle } from "./components/theme";
-import BrandMark from "./components/Logo";
 
 /* ============================================================================
-   Login — InsightLab (dark "Nocturne" + light "Daylight", token-driven).
-   LOGIC UNCHANGED: same state keys, same auth.signIn / auth.signUp calls,
-   same mode/err/msg/busy flow. Only the visual layer was reworked.
-   Requires:  npm i framer-motion  ·  import "./nocturne.css" (in main.jsx)
-   Must be rendered inside <ThemeProvider> (see App in InsightLabCRM.jsx).
+   Login — AgencyCRM (dark "Nocturne" + light "Daylight", token-driven).
    ============================================================================ */
 const FONT = "Inter, system-ui, sans-serif";
 
@@ -58,14 +53,11 @@ export default function Login() {
         >
           <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 1, background: "linear-gradient(90deg,transparent,var(--c-blue),transparent)", opacity: 0.7 }} />
 
-          {/* logo */}
+          {/* logo — текстовый AgencyCRM */}
           <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 26, color: "var(--c-text)" }}>
-            <BrandMark height={26} />
-            <span style={{
-              fontSize: 10, color: "var(--c-faint)", fontWeight: 700, letterSpacing: 1.8,
-              textTransform: "uppercase", padding: "3px 8px", borderRadius: 7,
-              background: "var(--c-panel)", border: "1px solid var(--c-border)",
-            }}>CRM</span>
+            <span style={{ fontSize: 22, fontWeight: 800, letterSpacing: -0.5, color: "var(--c-text)" }}>
+              Agency<span style={{ color: "var(--c-blue)" }}>CRM</span>
+            </span>
           </div>
 
           <div style={{ fontWeight: 800, fontSize: 23, letterSpacing: -0.4, marginBottom: 6 }}>
@@ -92,7 +84,7 @@ export default function Login() {
 
           <div style={{ marginBottom: 16 }}>
             <div style={label}>Email</div>
-            <input className="n-in" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@insightlab.kz" />
+            <input className="n-in" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.kz" />
           </div>
           <div style={{ marginBottom: 24 }}>
             <div style={label}>Пароль</div>

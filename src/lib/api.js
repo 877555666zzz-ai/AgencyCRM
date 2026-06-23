@@ -55,7 +55,7 @@ const fromLead = (r) => ({
   whatsapp: r.whatsapp || "", telegram: r.telegram || "", instagram: r.instagram || "",
   linkedin: r.linkedin || "", linkedinCompany: r.linkedin_company || "",
   website: r.website || "", bin: r.bin || "", city: r.city || "", employees: r.employees || "",
-  custom: r.custom || {},
+  custom: r.custom || {}, createdAt: r.created_at || null,
 });
 
 const toLeadRow = (l, companyId, pipelineId) => ({
@@ -80,6 +80,7 @@ const fromProject = (r) => ({
   whatsapp: r.whatsapp || "", telegram: r.telegram || "",
   description: r.description || "", deadline: r.deadline || null,
   amount: Number(r.amount) || 0, assignees: r.assignees || [], custom: r.custom || {},
+  createdAt: r.created_at || null,
 });
 const toProjectRow = (p, companyId, pipelineId) => ({
   id: p.id, company_id: companyId, pipeline_id: p.pipelineId || pipelineId || null,

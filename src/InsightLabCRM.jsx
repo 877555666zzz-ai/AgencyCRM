@@ -619,13 +619,10 @@ const PACKAGE_PRICE_LOCAL = { "Экспресс": 350000, "Полное": 900000
 // ---------- Логотип ----------
 function Logo() {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, color: C.text }}>
-      <BrandMark height={22} />
-      <span style={{
-        fontSize: 9.5, color: C.faint, fontWeight: 700, letterSpacing: 1.6,
-        textTransform: "uppercase", padding: "2px 7px", borderRadius: 6,
-        background: C.panel, border: "1px solid " + C.border,
-      }}>CRM</span>
+    <div style={{ display: "flex", alignItems: "center", gap: 9, color: C.text }}>
+      <span style={{ fontSize: 19, fontWeight: 800, letterSpacing: -0.5, color: C.text }}>
+        Agency<span style={{ color: C.blue }}>CRM</span>
+      </span>
     </div>
   );
 }
@@ -2012,13 +2009,15 @@ function Analytics({ role, user, leads, projects, salesStages = [], projStages =
   const inPeriod = (item) => {
     if (!periodStart) return true;
     const d = item.createdAt || item.created_at;
-    // у нас нет createdAt на клиенте — фильтруем по nextTouch/deadline как приближение, иначе всё
-    return true;
+    if (!d) return true; // нет даты — не отсекаем
+    return new Date(d) >= periodStart;
   };
 
   const _won = (l) => isWonStage ? isWonStage(l.stage) : l.stage === "won";
   const _lost = (l) => isLostStage ? isLostStage(l.stage) : l.stage === "lost";
-  const scope = role === "sales" ? leads.filter((l) => l.owner === user.id) : leads;
+  const scopeAll = role === "sales" ? leads.filter((l) => l.owner === user.id) : leads;
+  const scope = scopeAll.filter(inPeriod);
+  const projectsScope = projects.filter(inPeriod);
 
   // --- метрики сделок ---
   const byStage = salesStages.filter((s) => !s.isLost).map((s) => ({
@@ -2035,11 +2034,11 @@ function Analytics({ role, user, leads, projects, salesStages = [], projStages =
 
   // --- метрики проектов ---
   const projDoneStage = projStages.find((s) => s.isWon);
-  const projInWork = projects.filter((p) => !projDoneStage || p.stage !== projDoneStage.id).length;
-  const projDone = projDoneStage ? projects.filter((p) => p.stage === projDoneStage.id).length : 0;
+  const projInWork = projectsScope.filter((p) => !projDoneStage || p.stage !== projDoneStage.id).length;
+  const projDone = projDoneStage ? projectsScope.filter((p) => p.stage === projDoneStage.id).length : 0;
   const projByStage = projStages.map((s) => ({
     name: s.title.length > 12 ? s.title.slice(0, 11) + "…" : s.title,
-    Проекты: projects.filter((p) => p.stage === s.id).length,
+    Проекты: projectsScope.filter((p) => p.stage === s.id).length,
   }));
 
   // --- по сотрудникам ---
@@ -2098,7 +2097,7 @@ function Analytics({ role, user, leads, projects, salesStages = [], projStages =
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 16 }}>
           <StatCard label="В работе" value={projInWork} sub="активных проектов" />
           <StatCard label="Завершено" value={projDone} sub="готовых" accent={C.green} />
-          <StatCard label="Всего" value={projects.length} sub="проектов" />
+          <StatCard label="Всего" value={projectsScope.length} sub="проектов" />
         </div>
         {projByStage.length > 0 && (
           <Panel>
@@ -2297,7 +2296,7 @@ function IntegrationsPanel() {
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap", marginBottom: 6 }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 800 }}>Интеграции и API-токены</div>
-          <div style={{ fontSize: 12.5, color: C.faint, marginTop: 2 }}>Подключение внешних сервисов (InsightLab, сайт-форма, любой API) к воронке.</div>
+          <div style={{ fontSize: 12.5, color: C.faint, marginTop: 2 }}>Подключение внешних сервисов (сайт-форма, любой API) к воронке.</div>
         </div>
         <Btn size="sm" onClick={() => { setCreating(true); setIssued(null); }}>+ Добавить токен</Btn>
       </div>
@@ -2357,7 +2356,7 @@ function IntegrationsPanel() {
         <Modal open onClose={() => setCreating(false)} width={480} title="Новый API-токен"
           footer={<><Btn variant="ghost" onClick={() => setCreating(false)}>Отмена</Btn><Btn onClick={create} disabled={busy || !name.trim() || !sel.size}>{busy ? "Создаём…" : "Создать токен"}</Btn></>}>
           <Field label="Название" hint="чтобы понимать, какой сервис подключён">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Напр. InsightLab Лидген" />
+            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Напр. Сайт Лидген" />
           </Field>
           <div style={{ fontSize: 13, fontWeight: 700, margin: "8px 0 8px" }}>Права доступа (scopes)</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -2531,7 +2530,7 @@ function ApiLogPanel() {
   );
 }
 
-function SettingsView({ onReset, isAdmin, company, salesPipeline, projectPipeline, salesStages = [], projStages = [], brandName, logoUrl, customFields = [], inboundToken, onReload }) {
+function SettingsView({ onReset, isAdmin, company, salesPipeline, projectPipeline, salesStages = [], projStages = [], brandName, logoUrl, customFields = [], inboundToken, leadsForCount = [], projectsForCount = [], onReload }) {
   if (!isAdmin) {
     return (
       <div>
@@ -2545,8 +2544,8 @@ function SettingsView({ onReset, isAdmin, company, salesPipeline, projectPipelin
       <h2 style={{ margin: "0 0 20px", fontSize: 23, fontWeight: 700, letterSpacing: -0.5 }}>Настройки</h2>
       <BrandingEditor company={company} brandName={brandName} logoUrl={logoUrl} onReload={onReload} />
       <InboundPanel token={inboundToken} />
-      <StagesEditor title="Воронка продаж" company={company} pipelineId={salesPipeline} stages={salesStages} onReload={onReload} allowFlags />
-      <StagesEditor title="Воронка проектов" company={company} pipelineId={projectPipeline} stages={projStages} onReload={onReload} />
+      <StagesEditor title="Воронка продаж" company={company} pipelineId={salesPipeline} stages={salesStages} onReload={onReload} allowFlags countOnStage={(sid) => (leadsForCount || []).filter((l) => l.stage === sid).length} />
+      <StagesEditor title="Воронка проектов" company={company} pipelineId={projectPipeline} stages={projStages} onReload={onReload} countOnStage={(sid) => (projectsForCount || []).filter((p) => p.stage === sid).length} />
       <CustomFieldsEditor company={company} entity="lead" title="Доп. поля лидов" fields={customFields.filter((f) => f.entity === "lead")} onReload={onReload} />
       <CustomFieldsEditor company={company} entity="project" title="Доп. поля проектов" fields={customFields.filter((f) => f.entity === "project")} onReload={onReload} />
     </div>
@@ -2713,7 +2712,7 @@ function BrandingEditor({ company, brandName, logoUrl, onReload }) {
 }
 
 
-function StagesEditor({ title, company, pipelineId, stages, onReload, allowFlags }) {
+function StagesEditor({ title, company, pipelineId, stages, onReload, allowFlags, countOnStage }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [newTitle, setNewTitle] = useState("");
@@ -2734,7 +2733,12 @@ function StagesEditor({ title, company, pipelineId, stages, onReload, allowFlags
   };
   const recolor = (s, color) => call((pe) => pe.updateStage(s.id, { color }));
   const del = (s) => {
-    if (!confirm(`Удалить стадию «${s.title}»? Лиды на ней нужно сначала перенести.`)) return;
+    const cnt = countOnStage ? countOnStage(s.id) : 0;
+    if (cnt > 0) {
+      alert(`Нельзя удалить стадию «${s.title}»: на ней ${cnt} ${cnt === 1 ? "карточка" : "карточек"}. Сначала перенесите их в другую стадию.`);
+      return;
+    }
+    if (!confirm(`Удалить стадию «${s.title}»?`)) return;
     call((pe) => pe.deleteStage(s.id));
   };
   const move = (idx, dir) => {
@@ -2801,7 +2805,7 @@ const miniBtn = { width: 18, height: 14, fontSize: 8, lineHeight: "14px", paddin
 const miniBtn2 = { width: 30, height: 30, fontSize: 14, padding: 0, border: "1px solid " + C.border, borderRadius: 7, background: C.panel, color: C.muted, cursor: "pointer" };
 const flagBtn = { fontSize: 11, fontWeight: 700, padding: "5px 8px", borderRadius: 7, border: "1px solid", cursor: "pointer", fontFamily: FONT };
 
-function ProjectsView({ projects, stages, users, leads, canEdit, onSave, onMove, onDelete, onOpenLead }) {
+function ProjectsView({ projects, stages, users, leads, canEdit, company, onSave, onMove, onDelete, onOpenLead }) {
   const [open, setOpen] = useState(null);
   const projStages = stages.length ? stages : [{ id: "backlog", title: "Бэклог" }];
   const firstStage = projStages[0]?.id;
@@ -2850,6 +2854,7 @@ function ProjectsView({ projects, stages, users, leads, canEdit, onSave, onMove,
 
       {open && (
         <ProjectDetail project={open} stages={projStages} users={users} leads={leads}
+          company={company}
           canEdit={canEdit}
           onSave={(p) => { onSave(p); setOpen(null); }}
           onClose={() => setOpen(null)}
@@ -2873,10 +2878,34 @@ function TagMini({ children }) {
 }
 
 // ---------- Карточка проекта ----------
-function ProjectDetail({ project, stages, users, leads, canEdit, onSave, onClose, onOpenLead }) {
+function ProjectDetail({ project, stages, users, leads, canEdit, company, onSave, onClose, onOpenLead }) {
   const [p, setP] = useState({ ...project });
   const set = (k, v) => setP((x) => ({ ...x, [k]: v }));
   useEffect(() => { setP({ ...project }); }, [project.id]);
+
+  // комментарии проекта
+  const [comments, setComments] = useState([]);
+  const [newComment, setNewComment] = useState("");
+  const [cmtBusy, setCmtBusy] = useState(false);
+  const loadComments = async () => {
+    try { const { projectComments } = await import("./lib/api"); setComments(await projectComments.list(project.id)); }
+    catch (_e) { setComments([]); }
+  };
+  useEffect(() => { if (project.id) loadComments(); }, [project.id]);
+  const addComment = async () => {
+    if (!newComment.trim()) return;
+    setCmtBusy(true);
+    try {
+      const { projectComments } = await import("./lib/api");
+      await projectComments.add(company, project.id, newComment.trim(), "");
+      setNewComment(""); await loadComments();
+    } catch (_e) {}
+    setCmtBusy(false);
+  };
+  const delComment = async (id) => {
+    try { const { projectComments } = await import("./lib/api"); await projectComments.remove(id); await loadComments(); }
+    catch (_e) {}
+  };
 
   const open = (u) => { u = (u || "").trim(); if (!u) return; window.open(u.startsWith("http") ? u : "https://" + u, "_blank", "noopener,noreferrer"); };
   const waDigits = (p.whatsapp || "").replace(/[^\d]/g, "");
@@ -2935,6 +2964,31 @@ function ProjectDetail({ project, stages, users, leads, canEdit, onSave, onClose
         <Field label="WhatsApp (номер)"><Input value={p.whatsapp} disabled={!canEdit} onChange={(e) => set("whatsapp", e.target.value)} placeholder="+7…" /></Field>
         <Field label="Telegram"><Input value={p.telegram} disabled={!canEdit} onChange={(e) => set("telegram", e.target.value)} placeholder="@username" /></Field>
       </div>
+
+      {/* комментарии проекта */}
+      <div style={{ marginTop: 22, borderTop: "1px solid " + C.border, paddingTop: 18 }}>
+        <div style={{ fontSize: 15, fontWeight: 800, color: C.text, marginBottom: 12 }}>Комментарии</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+          {comments.length === 0 && <div style={{ fontSize: 13, color: C.faint }}>Пока нет комментариев.</div>}
+          {comments.map((c) => (
+            <div key={c.id} style={{ background: C.surface, border: "1px solid " + C.border, borderRadius: 10, padding: "10px 12px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+                <div style={{ fontSize: 13.5, color: C.text, whiteSpace: "pre-wrap", flex: 1 }}>{c.text}</div>
+                <button onClick={() => delComment(c.id)} style={{ ...miniBtn2, width: 24, height: 24, fontSize: 12, color: C.red, flexShrink: 0 }}>×</button>
+              </div>
+              <div style={{ fontSize: 11, color: C.faint, marginTop: 6 }}>
+                {c.author_name || "Сотрудник"} · {new Date(c.created_at).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={newComment} onChange={(e) => setNewComment(e.target.value)} placeholder="Написать комментарий…"
+            onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), addComment())}
+            style={{ flex: 1, padding: "10px 12px", borderRadius: 9, border: "1px solid " + C.border, background: C.surface, color: C.text, fontSize: 13.5, fontFamily: FONT }} />
+          <Btn onClick={addComment} disabled={cmtBusy || !newComment.trim()}>Отправить</Btn>
+        </div>
+      </div>
     </Modal>
   );
 }
@@ -2981,7 +3035,7 @@ function CRMApp({ onSignOut }) {
 
   if (!db || !userId) {
     return <div style={{ ...PAGE, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ color: C.faint }}>Загрузка InsightLab CRM…</div>
+      <div style={{ color: C.faint }}>Загрузка AgencyCRM…</div>
     </div>;
   }
 
@@ -3272,6 +3326,7 @@ function CRMApp({ onSignOut }) {
   else if (validPage === "projects") {
     content = (
       <ProjectsView projects={db.projects} stages={projStages} users={db.users} leads={db.leads}
+        company={db.__company}
         canEdit={isAdmin || role === "sales"}
         onSave={saveProject} onMove={moveProject} onDelete={deleteProjects}
         onOpenLead={(l) => { setPage("sales"); setOpenLead(l); }} />
@@ -3334,6 +3389,7 @@ function CRMApp({ onSignOut }) {
     company={db.__company} salesPipeline={db.__defaultPipeline} projectPipeline={db.__projectPipeline}
     salesStages={salesStages} projStages={projStages} brandName={db.__brandName} logoUrl={db.__logoUrl}
     customFields={db.__customFields || []} inboundToken={db.__inboundToken}
+    leadsForCount={db.leads} projectsForCount={db.projects}
     onReload={() => window.location.reload()} />;
 
   function saveLeadUser(u) {
