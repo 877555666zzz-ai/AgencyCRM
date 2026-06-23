@@ -1080,7 +1080,7 @@ function CopyField({ label, value }) {
 }
 
 // ---------- Карточка лида (полная, с историей) ----------
-function LeadDetail({ lead, users, allLeads = [], stages = [], isWonStage, canEdit, onSave, onClose, onConvert, onPick }) {
+function LeadDetail({ lead, users, allLeads = [], stages = [], isWonStage, canEdit, canSeeMoney = true, onSave, onClose, onConvert, onPick }) {
   const [l, setL] = useState({ ...lead });
   const [act, setAct] = useState({ type: "call", title: "" });
   const [q, setQ] = useState("");
@@ -1185,7 +1185,7 @@ function LeadDetail({ lead, users, allLeads = [], stages = [], isWonStage, canEd
         <Field label="Стадия"><Select disabled={!canEdit} value={l.stage} options={stageList.map((s) => ({ value: s.id, label: s.title }))} onChange={(e) => set("stage", e.target.value)} /></Field>
         <Field label="Ответственный"><Select disabled={!canEdit} value={l.owner} options={users.filter((u) => u.role === "sales" || u.role === "admin").map((u) => ({ value: u.id, label: u.name }))} onChange={(e) => set("owner", e.target.value)} /></Field>
         <Field label="Дата следующего касания"><Input type="date" value={l.nextTouch || ""} disabled={!canEdit} onChange={(e) => set("nextTouch", e.target.value)} /></Field>
-        <Field label="Оценочная сумма сделки, ₸"><Input type="number" value={l.amount} disabled={!canEdit} onChange={(e) => set("amount", +e.target.value)} /></Field>
+        {canSeeMoney && <Field label="Оценочная сумма сделки, ₸"><Input type="number" value={l.amount} disabled={!canEdit} onChange={(e) => set("amount", +e.target.value)} /></Field>}
       </div>
 
       {/* ----- Каналы связи (премиум) ----- */}
@@ -1976,7 +1976,7 @@ function ImportExportModal({ kind, existing, projectId, projects = [], onClose, 
 // ---------- Аналитика (3.8) ----------
 const CHART_COLORS = ["#2D9CDB", "#27AE60", "#F2994A", "#9B51E0", "#56CCF2", "#EB5757"];
 
-function Analytics({ role, user, leads, projects, salesStages = [], projStages = [], users, isWonStage, isLostStage }) {
+function Analytics({ role, user, leads, projects, salesStages = [], projStages = [], users, isWonStage, isLostStage, canSeeMoney = true }) {
   const { theme: __theme } = useTheme();
   const CK = __theme === "dark"
     ? { axis: "#9DABC0", grid: "rgba(255,255,255,0.10)", blue: "#2D9CDB", green: "#3FB97F", tipBg: "#141C2B", tipBd: "rgba(255,255,255,0.14)", text: "#E6EDF5", sub: "#9DABC0", cursor: "rgba(255,255,255,0.05)" }
@@ -2057,10 +2057,10 @@ function Analytics({ role, user, leads, projects, salesStages = [], projStages =
       <Section title="Сделки">
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 16 }}>
           <StatCard label="Win rate" value={winRate + "%"} sub={won + " выиграно / " + lost + " проиграно"} accent={C.green} />
-          <StatCard label="Закрыто" value={fmtMoney(closed)} sub="сумма выигранных" accent={C.green} />
-          <StatCard label="Пайплайн" value={fmtMoney(pipeline)} sub="в активных стадиях" />
-          <StatCard label="Средний чек" value={fmtMoney(avgCheck)} sub="по выигранным" />
-          <StatCard label="Упущено" value={fmtMoney(lostSum)} sub={lost + " проиграно"} accent={C.red} />
+          {canSeeMoney && <StatCard label="Закрыто" value={fmtMoney(closed)} sub="сумма выигранных" accent={C.green} />}
+          {canSeeMoney && <StatCard label="Пайплайн" value={fmtMoney(pipeline)} sub="в активных стадиях" />}
+          {canSeeMoney && <StatCard label="Средний чек" value={fmtMoney(avgCheck)} sub="по выигранным" />}
+          {canSeeMoney && <StatCard label="Упущено" value={fmtMoney(lostSum)} sub={lost + " проиграно"} accent={C.red} />}
         </div>
         <Panel>
           <div style={{ fontSize: 13, fontWeight: 700, color: C.muted, marginBottom: 10 }}>Лиды по стадиям</div>
@@ -2799,6 +2799,9 @@ function ProjectDetail({ project, stages, users, leads, canEdit, onSave, onClose
   );
 }
 
+const PAGE = { minHeight: "100vh", background: "var(--c-bg)", color: "var(--c-text)", fontFamily: FONT };
+const fontStyle = `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');`;
+
 function CRMApp({ onSignOut }) {
   const [db, setDb] = useState(null);
   const [userId, setUserId] = useState(null);
@@ -2845,6 +2848,9 @@ function CRMApp({ onSignOut }) {
   const user = db.users.find((u) => u.id === userId);
   const role = user.role;
   const isAdmin = role === "admin";
+  // видимость денег: руководитель (admin) и менеджер (manager) видят суммы; сотрудник (member) — нет
+  const myDbRole = user.dbRole || (isAdmin ? "admin" : "member");
+  const canSeeMoney = myDbRole === "admin" || myDbRole === "manager";
 
   const patch = (changes) => setDb((d) => ({ ...d, ...changes }));
   const upd = (key, id, fn) => setDb((d) => ({ ...d, [key]: d[key].map((x) => (x.id === id ? fn(x) : x)) }));
@@ -3055,7 +3061,7 @@ function CRMApp({ onSignOut }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 11 }}>
         <span style={{ fontSize: 10.5, fontWeight: 600, color: C.muted, background: "var(--g-col)", border: "1px solid var(--g-col-border)", padding: "2px 8px", borderRadius: 999 }}>{l.source}</span>
         {hot && <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 11, fontWeight: 700, color: C.amber }}><Flame size={12} strokeWidth={2} /> Горячий</span>}
-        <span style={{ marginLeft: "auto", fontSize: 13.5, fontWeight: 700, color: C.text, fontVariantNumeric: "tabular-nums" }}>{fmtMoney(l.amount)}</span>
+        {canSeeMoney && <span style={{ marginLeft: "auto", fontSize: 13.5, fontWeight: 700, color: C.text, fontVariantNumeric: "tabular-nums" }}>{fmtMoney(l.amount)}</span>}
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 11.5, fontWeight: 600, color: won ? C.green : accent }}>
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><polyline points="12 7 12 12 15 14" /></svg>
@@ -3096,7 +3102,7 @@ function CRMApp({ onSignOut }) {
         <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", marginBottom: 22, flexWrap: "wrap", gap: 14 }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 32, fontWeight: 700, letterSpacing: -0.9, color: C.text }}>Продажи</h2>
-            <div style={{ fontSize: 14.5, color: C.muted, marginTop: 6 }}>Воронка лидов · {_act.length} активных сделок на {mln(_pipeline)}</div>
+            <div style={{ fontSize: 14.5, color: C.muted, marginTop: 6 }}>Воронка лидов · {_act.length} активных сделок{canSeeMoney ? " на " + mln(_pipeline) : ""}</div>
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
             <div className="seg-toggle">
@@ -3111,9 +3117,9 @@ function CRMApp({ onSignOut }) {
         </div>
         <div style={{ display: "flex", gap: 16, marginBottom: 26, flexWrap: "wrap" }}>
           <Kpi label="Win-rate" value={_winRate + "%"} accent={C.green} sub={_won.length + " выиграно / " + _lost.length + " проиграно"} />
-          <Kpi label="Пайплайн" value={mln(_pipeline)} sub={_act.length + " активных"} />
-          <Kpi label="Выручка" value={mln(_revenue)} accent={C.indigo} sub={_won.length + " закрыто"} />
-          <Kpi label="Средний чек" value={mln(_avg)} sub="по сделкам" grad />
+          {canSeeMoney && <Kpi label="Пайплайн" value={mln(_pipeline)} sub={_act.length + " активных"} />}
+          {canSeeMoney && <Kpi label="Выручка" value={mln(_revenue)} accent={C.indigo} sub={_won.length + " закрыто"} />}
+          {canSeeMoney && <Kpi label="Средний чек" value={mln(_avg)} sub="по сделкам" grad />}
         </div>
         </div>
         <KanbanBoard stages={salesStages} items={displayLeads} getStage={(l) => l.stage} renderCard={leadCard} onMove={moveLead}
@@ -3180,7 +3186,7 @@ function CRMApp({ onSignOut }) {
   else if (validPage === "analytics") {
     content = <Analytics role={role} user={user} leads={db.leads} projects={db.projects}
       salesStages={salesStages} projStages={projStages} users={db.users}
-      isWonStage={isWonStage} isLostStage={isLostStage} />;
+      isWonStage={isWonStage} isLostStage={isLostStage} canSeeMoney={canSeeMoney} />;
   }
 
   else if (validPage === "users") content = <UsersView users={db.users} onSave={saveLeadUser} />;
@@ -3212,7 +3218,7 @@ function CRMApp({ onSignOut }) {
       {/* Модалки */}
       {openLead && (
         <LeadDetail lead={openLead} users={db.users} allLeads={db.leads} stages={salesStages}
-          isWonStage={isWonStage}
+          isWonStage={isWonStage} canSeeMoney={canSeeMoney}
           canEdit={isAdmin || (role === "sales" && (openLead.owner === userId || !db.leads.some((x) => x.id === openLead.id)))}
           onSave={saveLead} onClose={() => setOpenLead(null)}
           onPick={(l) => setOpenLead(l)}

@@ -121,7 +121,7 @@ export async function loadDb() {
   const mapRole = (r) => (r === "superadmin" || r === "admin") ? "admin" : "sales";
   const users = (profilesRes.data || []).map((p) => ({
     id: p.id, name: p.name || p.email || "Сотрудник", role: mapRole(p.role),
-    telegram_id: "", email: p.email || "", active: p.active !== false,
+    dbRole: p.role, telegram_id: "", email: p.email || "", active: p.active !== false,
   }));
 
   const stages = (stagesRes.data || []).map((s) => ({
