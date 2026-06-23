@@ -631,7 +631,7 @@ function Logo() {
 }
 
 // ---------- Header с переключателем роли (демонстрация 3 интерфейсов) ----------
-function Header({ user, users, onSwitchUser, nav, current, onNav, query, setQuery, notifications = [], onSignOut }) {
+function Header({ user, users, onSwitchUser, nav, current, onNav, query, setQuery, notifications = [], onSignOut, brand = {} }) {
   const initials = (user.name || "?").split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
   const [userMenu, setUserMenu] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -642,7 +642,12 @@ function Header({ user, users, onSwitchUser, nav, current, onNav, query, setQuer
       padding: "0 24px", display: "flex", alignItems: "center",
       gap: 18, height: 64, position: "sticky", top: 0, zIndex: 50,
     }}>
-      <div style={{ color: C.text, flexShrink: 0 }}><Logo height={22} /></div>
+      <div style={{ color: C.text, flexShrink: 0, display: "flex", alignItems: "center", gap: 9 }}>
+        {brand.logoUrl
+          ? <img src={brand.logoUrl} alt="logo" style={{ height: 26, maxWidth: 150, objectFit: "contain" }} onError={(e) => { e.target.style.display = "none"; }} />
+          : <Logo height={22} />}
+        {brand.brandName && <span style={{ fontSize: 15, fontWeight: 800, color: C.text }}>{brand.brandName}</span>}
+      </div>
       <nav style={{ display: "flex", gap: 3, overflowX: "auto" }}>
         {nav.map((n) => (
           <button key={n.id} onClick={() => onNav(n.id)} style={{
@@ -2508,59 +2513,154 @@ function ApiLogPanel() {
   );
 }
 
-function SettingsView({ onReset, isAdmin }) {
+function SettingsView({ onReset, isAdmin, company, salesPipeline, projectPipeline, salesStages = [], projStages = [], brandName, logoUrl, onReload }) {
+  if (!isAdmin) {
+    return (
+      <div>
+        <h2 style={{ margin: "0 0 20px", fontSize: 23, fontWeight: 700, letterSpacing: -0.5 }}>Настройки</h2>
+        <Panel><div style={{ fontSize: 13.5, color: C.muted }}>Настройки доступны только руководителю компании.</div></Panel>
+      </div>
+    );
+  }
   return (
     <div>
-      <h2 style={{ margin: "0 0 20px", fontSize: 23, fontWeight: 700, letterSpacing: -0.5 }}>Настройки и интеграции</h2>
-      {isAdmin && <IntegrationsPanel />}
-      {isAdmin && <WebhooksPanel />}
-      {isAdmin && <ApiLogPanel />}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: isAdmin ? 16 : 0 }}>
-        <Panel>
-          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>Telegram-бот</div>
-          <div style={{ fontSize: 12.5, color: C.faint, marginBottom: 14 }}>Напоминания о задачах, разборах и интервью.</div>
-          <Field label="Bot token"><Input placeholder="123456:ABC-DEF…" /></Field>
-          <Field label="Webhook / edge-функция"><Input placeholder="https://<project>.functions.supabase.co/tg-remind" /></Field>
-          <Btn variant="soft">Проверить соединение</Btn>
-        </Panel>
-        <Panel>
-          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>Supabase (бэкенд)</div>
-          <div style={{ fontSize: 12.5, color: C.faint, marginBottom: 14 }}>Postgres + Auth + RLS + Storage для записей интервью.</div>
-          <Field label="Project URL"><Input placeholder="https://xxxx.supabase.co" /></Field>
-          <Field label="Anon key"><Input placeholder="eyJhbGciOi…" /></Field>
-          <Btn variant="soft">Сохранить ключи</Btn>
-        </Panel>
-        <Panel>
-          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>Импорт результатов роботов</div>
-          <div style={{ fontSize: 12.5, color: C.faint, marginBottom: 14 }}>CSV-импорт респондентов с проставленными статусами — на вкладке «Импорт/Экспорт» каждого проекта.</div>
-          <Badge color={C.green} bg="#E7F6EE">обычный CSV-импорт</Badge>
-        </Panel>
-        <Panel>
-          <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>Данные демо</div>
-          <div style={{ fontSize: 12.5, color: C.faint, marginBottom: 14 }}>Сбросить все локальные данные и вернуть исходный seed.</div>
-          <Btn variant="danger" onClick={onReset}>Сбросить демо-данные</Btn>
-        </Panel>
-      </div>
+      <h2 style={{ margin: "0 0 20px", fontSize: 23, fontWeight: 700, letterSpacing: -0.5 }}>Настройки</h2>
+      <BrandingEditor company={company} brandName={brandName} logoUrl={logoUrl} onReload={onReload} />
+      <StagesEditor title="Воронка продаж" company={company} pipelineId={salesPipeline} stages={salesStages} onReload={onReload} allowFlags />
+      <StagesEditor title="Воронка проектов" company={company} pipelineId={projectPipeline} stages={projStages} onReload={onReload} />
     </div>
   );
 }
 
-// ============================================================================
-// SECTION: app
-// ============================================================================
-// ============================================================================
-// App — состояние, persist, маршрутизация по ролям и правам (3.1–3.2)
-// ============================================================================
+const STAGE_COLORS = ["#94a3b8", "#6366f1", "#8b5cf6", "#a855f7", "#3b82f6", "#22c55e", "#ef4444", "#f59e0b", "#06b6d4", "#ec4899"];
 
-const PAGE = { background: "transparent", minHeight: "100vh", fontFamily: FONT, color: C.text, zoom: 0.8 };
-const fontStyle = `@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-  * { box-sizing: border-box; } body { margin: 0; }
-  ::-webkit-scrollbar { height: 10px; width: 10px; } ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: var(--c-border-strong); border-radius: 20px; border: 3px solid transparent; background-clip: padding-box; }`;
+function BrandingEditor({ company, brandName, logoUrl, onReload }) {
+  const [name, setName] = useState(brandName || "");
+  const [logo, setLogo] = useState(logoUrl || "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [ok, setOk] = useState(false);
 
-// ============================================================================
-// ProjectsView — раздел Проекты (канбан + карточка) — Этап 4
-// ============================================================================
+  const save = async () => {
+    setBusy(true); setErr(""); setOk(false);
+    try {
+      const { branding } = await import("./lib/api");
+      await branding.update(company, { brand_name: name.trim() || null, logo_url: logo.trim() || null });
+      setOk(true); setTimeout(() => onReload(), 600);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <Panel style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>Брендинг компании</div>
+      <div style={{ fontSize: 12.5, color: C.faint, marginBottom: 14 }}>Название и логотип, которые видит ваша команда.</div>
+      {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 10 }}>{err}</div>}
+      {ok && <div style={{ color: C.green, fontSize: 13, marginBottom: 10 }}>Сохранено ✓</div>}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+        <Field label="Название (бренд)"><Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Моя Студия" /></Field>
+        <Field label="Ссылка на логотип (URL)"><Input value={logo} onChange={(e) => setLogo(e.target.value)} placeholder="https://…/logo.png" /></Field>
+      </div>
+      {logo && (
+        <div style={{ marginTop: 8, marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: C.faint, marginBottom: 6 }}>Предпросмотр:</div>
+          <img src={logo} alt="logo" style={{ height: 32, maxWidth: 180, objectFit: "contain" }} onError={(e) => { e.target.style.display = "none"; }} />
+        </div>
+      )}
+      <Btn onClick={save} disabled={busy}>{busy ? "Сохраняем…" : "Сохранить брендинг"}</Btn>
+    </Panel>
+  );
+}
+
+
+function StagesEditor({ title, company, pipelineId, stages, onReload, allowFlags }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [newTitle, setNewTitle] = useState("");
+
+  const call = async (fn) => {
+    setBusy(true); setErr("");
+    try { const { pipelineEditor } = await import("./lib/api"); await fn(pipelineEditor); onReload(); }
+    catch (e) { setErr(e.message); setBusy(false); }
+  };
+
+  const add = () => {
+    if (!newTitle.trim() || !pipelineId) return;
+    call((pe) => pe.addStage(company, pipelineId, newTitle.trim(), STAGE_COLORS[stages.length % STAGE_COLORS.length], stages.length));
+  };
+  const rename = (s) => {
+    const t = prompt("Новое название стадии:", s.title);
+    if (t && t.trim()) call((pe) => pe.updateStage(s.id, { title: t.trim() }));
+  };
+  const recolor = (s, color) => call((pe) => pe.updateStage(s.id, { color }));
+  const del = (s) => {
+    if (!confirm(`Удалить стадию «${s.title}»? Лиды на ней нужно сначала перенести.`)) return;
+    call((pe) => pe.deleteStage(s.id));
+  };
+  const move = (idx, dir) => {
+    const arr = [...stages];
+    const j = idx + dir;
+    if (j < 0 || j >= arr.length) return;
+    [arr[idx], arr[j]] = [arr[j], arr[idx]];
+    call((pe) => pe.reorderStages(arr.map((s) => s.id)));
+  };
+  const setFlag = (s, flag) => {
+    // снимаем флаг с других и ставим на эту
+    call(async (pe) => {
+      for (const x of stages) {
+        if (x[flag] && x.id !== s.id) await pe.updateStage(x.id, { [flag === "isWon" ? "is_won" : "is_lost"]: false });
+      }
+      await pe.updateStage(s.id, { [flag === "isWon" ? "is_won" : "is_lost"]: !s[flag] });
+    });
+  };
+
+  if (!pipelineId) return null;
+
+  return (
+    <Panel style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 12.5, color: C.faint, marginBottom: 14 }}>Настройте стадии: название, цвет, порядок.</div>
+      {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 10 }}>{err}</div>}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {stages.map((s, i) => (
+          <div key={s.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
+            background: C.surface, border: "1px solid " + C.border, borderRadius: 10 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <button onClick={() => move(i, -1)} disabled={busy || i === 0} style={miniBtn}>▲</button>
+              <button onClick={() => move(i, 1)} disabled={busy || i === stages.length - 1} style={miniBtn}>▼</button>
+            </div>
+            <input type="color" value={s.color || "#6366f1"} disabled={busy}
+              onChange={(e) => recolor(s, e.target.value)}
+              style={{ width: 28, height: 28, border: "none", borderRadius: 6, cursor: "pointer", background: "none" }} />
+            <span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{s.title}</span>
+            {allowFlags && (
+              <>
+                <button onClick={() => setFlag(s, "isWon")} disabled={busy} title="Стадия «выиграно»"
+                  style={{ ...flagBtn, background: s.isWon ? "#E7F6EE" : "transparent", color: s.isWon ? "#16a34a" : C.faint, borderColor: s.isWon ? "#16a34a" : C.border }}>✓ Выигр.</button>
+                <button onClick={() => setFlag(s, "isLost")} disabled={busy} title="Стадия «проиграно»"
+                  style={{ ...flagBtn, background: s.isLost ? "#FEECEC" : "transparent", color: s.isLost ? "#dc2626" : C.faint, borderColor: s.isLost ? "#dc2626" : C.border }}>✕ Проигр.</button>
+              </>
+            )}
+            <button onClick={() => rename(s)} disabled={busy} style={miniBtn2}>✎</button>
+            <button onClick={() => del(s)} disabled={busy} style={{ ...miniBtn2, color: C.red }}>🗑</button>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="Новая стадия…"
+          onKeyDown={(e) => e.key === "Enter" && add()}
+          style={{ flex: 1, padding: "9px 12px", borderRadius: 9, border: "1px solid " + C.border, background: C.surface, color: C.text, fontSize: 13.5, fontFamily: FONT }} />
+        <Btn onClick={add} disabled={busy || !newTitle.trim()}>+ Добавить</Btn>
+      </div>
+    </Panel>
+  );
+}
+const miniBtn = { width: 18, height: 14, fontSize: 8, lineHeight: "14px", padding: 0, border: "1px solid " + C.border, borderRadius: 3, background: C.panel, color: C.muted, cursor: "pointer" };
+const miniBtn2 = { width: 30, height: 30, fontSize: 14, padding: 0, border: "1px solid " + C.border, borderRadius: 7, background: C.panel, color: C.muted, cursor: "pointer" };
+const flagBtn = { fontSize: 11, fontWeight: 700, padding: "5px 8px", borderRadius: 7, border: "1px solid", cursor: "pointer", fontFamily: FONT };
+
 function ProjectsView({ projects, stages, users, leads, canEdit, onSave, onMove, onDelete, onOpenLead }) {
   const [open, setOpen] = useState(null);
   const projStages = stages.length ? stages : [{ id: "backlog", title: "Бэклог" }];
@@ -3084,7 +3184,10 @@ function CRMApp({ onSignOut }) {
   }
 
   else if (validPage === "users") content = <UsersView users={db.users} onSave={saveLeadUser} />;
-  else if (validPage === "settings") content = <SettingsView onReset={reset} isAdmin={isAdmin} />;
+  else if (validPage === "settings") content = <SettingsView onReset={reset} isAdmin={isAdmin}
+    company={db.__company} salesPipeline={db.__defaultPipeline} projectPipeline={db.__projectPipeline}
+    salesStages={salesStages} projStages={projStages} brandName={db.__brandName} logoUrl={db.__logoUrl}
+    onReload={() => window.location.reload()} />;
 
   function saveLeadUser(u) {
     db.users.some((x) => x.id === u.id) ? upd("users", u.id, () => u) : patch({ users: [...db.users, u] });
@@ -3103,7 +3206,7 @@ function CRMApp({ onSignOut }) {
           fontFamily: FONT, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
         Выйти
       </button>
-      <Header user={user} users={isAdmin ? db.users : [user]} onSwitchUser={switchUser} nav={nav} current={validPage} onNav={(p) => { setPage(p); setActiveProject(null); }} query={salesQuery} setQuery={setSalesQuery} notifications={notifications} onSignOut={onSignOut} />
+      <Header user={user} users={isAdmin ? db.users : [user]} onSwitchUser={switchUser} nav={nav} current={validPage} onNav={(p) => { setPage(p); setActiveProject(null); }} query={salesQuery} setQuery={setSalesQuery} notifications={notifications} onSignOut={onSignOut} brand={{ logoUrl: db.__logoUrl, brandName: db.__brandName }} />
       <main style={{ maxWidth: ["sales", "recruit"].includes(validPage) ? "100%" : 1280, margin: "0 auto", padding: "26px 24px 80px" }}>{content}</main>
 
       {/* Модалки */}

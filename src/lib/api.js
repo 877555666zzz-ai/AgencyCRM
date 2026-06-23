@@ -109,12 +109,13 @@ export async function loadDb() {
   const companyId = profile.company_id;
 
   // грузим параллельно: профили компании, стадии, воронки, лиды
-  const [profilesRes, stagesRes, pipesRes, leadsRes, projectsRes] = await Promise.all([
+  const [profilesRes, stagesRes, pipesRes, leadsRes, projectsRes, companyRes] = await Promise.all([
     supabase.from("profiles").select("*").eq("company_id", companyId),
     supabase.from("stages").select("*").eq("company_id", companyId).order("order_index"),
     supabase.from("pipelines").select("*").eq("company_id", companyId),
     supabase.from("leads").select("*").eq("company_id", companyId).order("created_at"),
     supabase.from("projects").select("*").eq("company_id", companyId).order("created_at"),
+    supabase.from("companies").select("*").eq("id", companyId).single(),
   ]);
 
   const mapRole = (r) => (r === "superadmin" || r === "admin") ? "admin" : "sales";
@@ -139,6 +140,10 @@ export async function loadDb() {
     users, stages, pipelines, leads, projects,
     respondents: [], notes: {}, tasks: [], reminders: [],
     __me: authUser.id, __company: companyId,
+    __companyName: companyRes.data?.name || "",
+    __brandName: companyRes.data?.brand_name || "",
+    __logoUrl: companyRes.data?.logo_url || "",
+    __maxUsers: companyRes.data?.max_users || 10,
     __defaultPipeline: (pipelines.find((p) => p.type === "sales" && p.isDefault) || pipelines.find((p) => p.type === "sales") || pipelines[0])?.id || null,
     __projectPipeline: (pipelines.find((p) => p.type === "projects" && p.isDefault) || pipelines.find((p) => p.type === "projects"))?.id || null,
   };
@@ -240,6 +245,48 @@ export const projectComments = {
 // ============================================================================
 // КОМАНДА: управление сотрудниками компании (Этап 5)
 // ============================================================================
+// ============================================================================
+// БРЕНДИНГ компании (Этап 3 ч.2)
+// ============================================================================
+export const branding = {
+  update: async (companyId, fields) => {
+    const { error } = await supabase.from("companies").update(fields).eq("id", companyId);
+    if (error) throw error;
+  },
+};
+
+// ============================================================================
+// СТАДИИ: редактор воронки (Этап 3)
+// ============================================================================
+export const pipelineEditor = {
+  // добавить стадию в воронку
+  addStage: async (companyId, pipelineId, title, color, orderIndex) => {
+    const { data, error } = await supabase.from("stages").insert({
+      company_id: companyId, pipeline_id: pipelineId,
+      title, color: color || "#6366f1", order_index: orderIndex,
+      is_won: false, is_lost: false,
+    }).select().single();
+    if (error) throw error;
+    return data;
+  },
+  // обновить стадию (название/цвет/флаги)
+  updateStage: async (id, fields) => {
+    const { error } = await supabase.from("stages").update(fields).eq("id", id);
+    if (error) throw error;
+  },
+  // удалить стадию (лиды этой стадии надо предварительно перенести)
+  deleteStage: async (id) => {
+    const { error } = await supabase.from("stages").delete().eq("id", id);
+    if (error) throw error;
+  },
+  // сохранить порядок стадий (массив id в нужном порядке)
+  reorderStages: async (orderedIds) => {
+    const updates = orderedIds.map((id, i) =>
+      supabase.from("stages").update({ order_index: i }).eq("id", id));
+    await Promise.all(updates);
+  },
+};
+
 export const team = {
   // добавить сотрудника (через Edge Function)
   addEmployee: async (payload) => {
