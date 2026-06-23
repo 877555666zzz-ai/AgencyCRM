@@ -2531,7 +2531,7 @@ function ApiLogPanel() {
   );
 }
 
-function SettingsView({ onReset, isAdmin, company, salesPipeline, projectPipeline, salesStages = [], projStages = [], brandName, logoUrl, customFields = [], onReload }) {
+function SettingsView({ onReset, isAdmin, company, salesPipeline, projectPipeline, salesStages = [], projStages = [], brandName, logoUrl, customFields = [], inboundToken, onReload }) {
   if (!isAdmin) {
     return (
       <div>
@@ -2544,11 +2544,62 @@ function SettingsView({ onReset, isAdmin, company, salesPipeline, projectPipelin
     <div>
       <h2 style={{ margin: "0 0 20px", fontSize: 23, fontWeight: 700, letterSpacing: -0.5 }}>Настройки</h2>
       <BrandingEditor company={company} brandName={brandName} logoUrl={logoUrl} onReload={onReload} />
+      <InboundPanel token={inboundToken} />
       <StagesEditor title="Воронка продаж" company={company} pipelineId={salesPipeline} stages={salesStages} onReload={onReload} allowFlags />
       <StagesEditor title="Воронка проектов" company={company} pipelineId={projectPipeline} stages={projStages} onReload={onReload} />
       <CustomFieldsEditor company={company} entity="lead" title="Доп. поля лидов" fields={customFields.filter((f) => f.entity === "lead")} onReload={onReload} />
       <CustomFieldsEditor company={company} entity="project" title="Доп. поля проектов" fields={customFields.filter((f) => f.entity === "project")} onReload={onReload} />
     </div>
+  );
+}
+
+const INBOUND_URL = "https://piimcaiabstnadguwrri.supabase.co/functions/v1/inbound-lead";
+
+function InboundPanel({ token }) {
+  const [copied, setCopied] = useState("");
+  const copy = (text, what) => { navigator.clipboard?.writeText(text); setCopied(what); setTimeout(() => setCopied(""), 1500); };
+  const curlExample = `curl -X POST ${INBOUND_URL} \\
+  -H "Content-Type: application/json" \\
+  -d '{"token":"${token || "ВАШ_ТОКЕН"}","company":"Имя клиента","phone":"+7...","email":"client@mail.kz","source":"Tilda","notes":"текст заявки"}'`;
+
+  return (
+    <Panel style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>Приём лидов с сайта и форм</div>
+      <div style={{ fontSize: 12.5, color: C.faint, marginBottom: 14 }}>
+        Подключите форму Tilda, Google Sheets или свой сайт — заявки будут падать в стадию «Новый».
+      </div>
+
+      <Field label="URL приёма (webhook)">
+        <div style={{ display: "flex", gap: 8 }}>
+          <Input value={INBOUND_URL} readOnly />
+          <Btn variant="ghost" onClick={() => copy(INBOUND_URL, "url")}>{copied === "url" ? "✓" : "Копировать"}</Btn>
+        </div>
+      </Field>
+
+      <Field label="Токен вашей компании (секретный)">
+        <div style={{ display: "flex", gap: 8 }}>
+          <Input value={token || "—"} readOnly />
+          <Btn variant="ghost" onClick={() => copy(token || "", "token")}>{copied === "token" ? "✓" : "Копировать"}</Btn>
+        </div>
+      </Field>
+
+      <div style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: C.muted, marginBottom: 6 }}>Как подключить:</div>
+        <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5, color: C.muted, lineHeight: 1.7 }}>
+          <li><b>Tilda:</b> в настройках формы → Webhook → вставьте URL выше. Добавьте скрытое поле <code>token</code> со значением вашего токена.</li>
+          <li><b>Google Sheets / Apps Script:</b> отправляйте POST на URL с полями <code>token, company, phone, email</code>.</li>
+          <li><b>Свой сайт:</b> POST-запрос на URL с JSON (пример ниже).</li>
+        </ul>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: C.muted }}>Пример запроса</div>
+          <Btn variant="ghost" size="sm" onClick={() => copy(curlExample, "curl")}>{copied === "curl" ? "✓ Скопировано" : "Копировать"}</Btn>
+        </div>
+        <pre style={{ background: C.surface, border: "1px solid " + C.border, borderRadius: 9, padding: 12, fontSize: 11.5, color: C.text, overflow: "auto", margin: 0, fontFamily: "ui-monospace, monospace" }}>{curlExample}</pre>
+      </div>
+    </Panel>
   );
 }
 
@@ -3282,7 +3333,8 @@ function CRMApp({ onSignOut }) {
   else if (validPage === "settings") content = <SettingsView onReset={reset} isAdmin={isAdmin}
     company={db.__company} salesPipeline={db.__defaultPipeline} projectPipeline={db.__projectPipeline}
     salesStages={salesStages} projStages={projStages} brandName={db.__brandName} logoUrl={db.__logoUrl}
-    customFields={db.__customFields || []} onReload={() => window.location.reload()} />;
+    customFields={db.__customFields || []} inboundToken={db.__inboundToken}
+    onReload={() => window.location.reload()} />;
 
   function saveLeadUser(u) {
     db.users.some((x) => x.id === u.id) ? upd("users", u.id, () => u) : patch({ users: [...db.users, u] });

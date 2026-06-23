@@ -145,6 +145,7 @@ export async function loadDb() {
     __brandName: companyRes.data?.brand_name || "",
     __logoUrl: companyRes.data?.logo_url || "",
     __maxUsers: companyRes.data?.max_users || 10,
+    __inboundToken: companyRes.data?.inbound_token || "",
     __customFields: (cfRes.data || []).map((c) => ({
       id: c.id, entity: c.entity, key: c.key, label: c.label, type: c.type,
       options: c.options || [], order: c.order_index,
