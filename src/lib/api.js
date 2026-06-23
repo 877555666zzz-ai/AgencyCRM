@@ -109,13 +109,14 @@ export async function loadDb() {
   const companyId = profile.company_id;
 
   // грузим параллельно: профили компании, стадии, воронки, лиды
-  const [profilesRes, stagesRes, pipesRes, leadsRes, projectsRes, companyRes] = await Promise.all([
+  const [profilesRes, stagesRes, pipesRes, leadsRes, projectsRes, companyRes, cfRes] = await Promise.all([
     supabase.from("profiles").select("*").eq("company_id", companyId),
     supabase.from("stages").select("*").eq("company_id", companyId).order("order_index"),
     supabase.from("pipelines").select("*").eq("company_id", companyId),
     supabase.from("leads").select("*").eq("company_id", companyId).order("created_at"),
     supabase.from("projects").select("*").eq("company_id", companyId).order("created_at"),
     supabase.from("companies").select("*").eq("id", companyId).single(),
+    supabase.from("custom_fields").select("*").eq("company_id", companyId).order("order_index"),
   ]);
 
   const mapRole = (r) => (r === "superadmin" || r === "admin") ? "admin" : "sales";
@@ -144,6 +145,10 @@ export async function loadDb() {
     __brandName: companyRes.data?.brand_name || "",
     __logoUrl: companyRes.data?.logo_url || "",
     __maxUsers: companyRes.data?.max_users || 10,
+    __customFields: (cfRes.data || []).map((c) => ({
+      id: c.id, entity: c.entity, key: c.key, label: c.label, type: c.type,
+      options: c.options || [], order: c.order_index,
+    })),
     __defaultPipeline: (pipelines.find((p) => p.type === "sales" && p.isDefault) || pipelines.find((p) => p.type === "sales") || pipelines[0])?.id || null,
     __projectPipeline: (pipelines.find((p) => p.type === "projects" && p.isDefault) || pipelines.find((p) => p.type === "projects"))?.id || null,
   };
@@ -248,6 +253,29 @@ export const projectComments = {
 // ============================================================================
 // БРЕНДИНГ компании (Этап 3 ч.2)
 // ============================================================================
+// ============================================================================
+// КАСТОМНЫЕ ПОЛЯ (Этап 3 ч.3)
+// ============================================================================
+export const customFields = {
+  add: async (companyId, entity, label, type, options, orderIndex) => {
+    const key = "cf_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const { error } = await supabase.from("custom_fields").insert({
+      company_id: companyId, entity, key, label,
+      type: type || "text", options: options || [], order_index: orderIndex || 0,
+    });
+    if (error) throw error;
+    return key;
+  },
+  update: async (id, fields) => {
+    const { error } = await supabase.from("custom_fields").update(fields).eq("id", id);
+    if (error) throw error;
+  },
+  remove: async (id) => {
+    const { error } = await supabase.from("custom_fields").delete().eq("id", id);
+    if (error) throw error;
+  },
+};
+
 export const branding = {
   update: async (companyId, fields) => {
     const { error } = await supabase.from("companies").update(fields).eq("id", companyId);

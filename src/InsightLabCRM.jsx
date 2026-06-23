@@ -1080,7 +1080,7 @@ function CopyField({ label, value }) {
 }
 
 // ---------- Карточка лида (полная, с историей) ----------
-function LeadDetail({ lead, users, allLeads = [], stages = [], isWonStage, canEdit, canSeeMoney = true, onSave, onClose, onConvert, onPick }) {
+function LeadDetail({ lead, users, allLeads = [], stages = [], isWonStage, canEdit, canSeeMoney = true, customFields = [], onSave, onClose, onConvert, onPick }) {
   const [l, setL] = useState({ ...lead });
   const [act, setAct] = useState({ type: "call", title: "" });
   const [q, setQ] = useState("");
@@ -1187,6 +1187,24 @@ function LeadDetail({ lead, users, allLeads = [], stages = [], isWonStage, canEd
         <Field label="Дата следующего касания"><Input type="date" value={l.nextTouch || ""} disabled={!canEdit} onChange={(e) => set("nextTouch", e.target.value)} /></Field>
         {canSeeMoney && <Field label="Оценочная сумма сделки, ₸"><Input type="number" value={l.amount} disabled={!canEdit} onChange={(e) => set("amount", +e.target.value)} /></Field>}
       </div>
+
+      {/* ----- Доп. поля (кастомные) ----- */}
+      {customFields.length > 0 && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 14 }}>
+          {customFields.map((cf) => {
+            const val = (l.custom || {})[cf.key] ?? "";
+            const setCustom = (v) => set("custom", { ...(l.custom || {}), [cf.key]: v });
+            return (
+              <Field key={cf.id} label={cf.label}>
+                {cf.type === "select"
+                  ? <Select disabled={!canEdit} value={val} options={[{ value: "", label: "—" }, ...(cf.options || []).map((o) => ({ value: o, label: o }))]} onChange={(e) => setCustom(e.target.value)} />
+                  : <Input type={cf.type === "number" ? "number" : cf.type === "date" ? "date" : "text"}
+                      value={val} disabled={!canEdit} onChange={(e) => setCustom(cf.type === "number" ? +e.target.value : e.target.value)} />}
+              </Field>
+            );
+          })}
+        </div>
+      )}
 
       {/* ----- Каналы связи (премиум) ----- */}
       <div style={{ marginTop: 22, marginBottom: 8 }}>
@@ -2513,7 +2531,7 @@ function ApiLogPanel() {
   );
 }
 
-function SettingsView({ onReset, isAdmin, company, salesPipeline, projectPipeline, salesStages = [], projStages = [], brandName, logoUrl, onReload }) {
+function SettingsView({ onReset, isAdmin, company, salesPipeline, projectPipeline, salesStages = [], projStages = [], brandName, logoUrl, customFields = [], onReload }) {
   if (!isAdmin) {
     return (
       <div>
@@ -2528,7 +2546,78 @@ function SettingsView({ onReset, isAdmin, company, salesPipeline, projectPipelin
       <BrandingEditor company={company} brandName={brandName} logoUrl={logoUrl} onReload={onReload} />
       <StagesEditor title="Воронка продаж" company={company} pipelineId={salesPipeline} stages={salesStages} onReload={onReload} allowFlags />
       <StagesEditor title="Воронка проектов" company={company} pipelineId={projectPipeline} stages={projStages} onReload={onReload} />
+      <CustomFieldsEditor company={company} entity="lead" title="Доп. поля лидов" fields={customFields.filter((f) => f.entity === "lead")} onReload={onReload} />
+      <CustomFieldsEditor company={company} entity="project" title="Доп. поля проектов" fields={customFields.filter((f) => f.entity === "project")} onReload={onReload} />
     </div>
+  );
+}
+
+const CF_TYPES = [
+  { value: "text", label: "Текст" },
+  { value: "number", label: "Число" },
+  { value: "date", label: "Дата" },
+  { value: "url", label: "Ссылка" },
+  { value: "phone", label: "Телефон" },
+  { value: "select", label: "Список" },
+];
+
+function CustomFieldsEditor({ company, entity, title, fields, onReload }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [label, setLabel] = useState("");
+  const [type, setType] = useState("text");
+  const [opts, setOpts] = useState("");
+
+  const call = async (fn) => {
+    setBusy(true); setErr("");
+    try { const { customFields } = await import("./lib/api"); await fn(customFields); onReload(); }
+    catch (e) { setErr(e.message); setBusy(false); }
+  };
+  const add = () => {
+    if (!label.trim()) return;
+    const options = type === "select" ? opts.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    call((cf) => cf.add(company, entity, label.trim(), type, options, fields.length));
+  };
+  const del = (f) => { if (confirm(`Удалить поле «${f.label}»?`)) call((cf) => cf.remove(f.id)); };
+
+  return (
+    <Panel style={{ marginBottom: 16 }}>
+      <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>{title}</div>
+      <div style={{ fontSize: 12.5, color: C.faint, marginBottom: 14 }}>Свои поля, которые появятся в карточках.</div>
+      {err && <div style={{ color: C.red, fontSize: 13, marginBottom: 10 }}>{err}</div>}
+
+      {fields.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+          {fields.map((f) => (
+            <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: C.surface, border: "1px solid " + C.border, borderRadius: 10 }}>
+              <span style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{f.label}</span>
+              <Badge>{CF_TYPES.find((t) => t.value === f.type)?.label || f.type}</Badge>
+              <button onClick={() => del(f)} disabled={busy} style={{ ...miniBtn2, color: C.red }}>🗑</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 140 }}>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Название поля</div>
+          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Напр. Площадь объекта"
+            style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid " + C.border, background: C.surface, color: C.text, fontSize: 13.5, fontFamily: FONT, boxSizing: "border-box" }} />
+        </div>
+        <div style={{ width: 120 }}>
+          <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Тип</div>
+          <Select value={type} options={CF_TYPES} onChange={(e) => setType(e.target.value)} />
+        </div>
+        {type === "select" && (
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 4 }}>Варианты (через запятую)</div>
+            <input value={opts} onChange={(e) => setOpts(e.target.value)} placeholder="A, B, C"
+              style={{ width: "100%", padding: "9px 12px", borderRadius: 9, border: "1px solid " + C.border, background: C.surface, color: C.text, fontSize: 13.5, fontFamily: FONT, boxSizing: "border-box" }} />
+          </div>
+        )}
+        <Btn onClick={add} disabled={busy || !label.trim()}>+ Добавить</Btn>
+      </div>
+    </Panel>
   );
 }
 
@@ -3193,7 +3282,7 @@ function CRMApp({ onSignOut }) {
   else if (validPage === "settings") content = <SettingsView onReset={reset} isAdmin={isAdmin}
     company={db.__company} salesPipeline={db.__defaultPipeline} projectPipeline={db.__projectPipeline}
     salesStages={salesStages} projStages={projStages} brandName={db.__brandName} logoUrl={db.__logoUrl}
-    onReload={() => window.location.reload()} />;
+    customFields={db.__customFields || []} onReload={() => window.location.reload()} />;
 
   function saveLeadUser(u) {
     db.users.some((x) => x.id === u.id) ? upd("users", u.id, () => u) : patch({ users: [...db.users, u] });
@@ -3218,7 +3307,7 @@ function CRMApp({ onSignOut }) {
       {/* Модалки */}
       {openLead && (
         <LeadDetail lead={openLead} users={db.users} allLeads={db.leads} stages={salesStages}
-          isWonStage={isWonStage} canSeeMoney={canSeeMoney}
+          isWonStage={isWonStage} canSeeMoney={canSeeMoney} customFields={(db.__customFields || []).filter((f) => f.entity === "lead")}
           canEdit={isAdmin || (role === "sales" && (openLead.owner === userId || !db.leads.some((x) => x.id === openLead.id)))}
           onSave={saveLead} onClose={() => setOpenLead(null)}
           onPick={(l) => setOpenLead(l)}
