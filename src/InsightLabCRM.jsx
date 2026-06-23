@@ -840,7 +840,7 @@ function KanbanBoard({ stages, items, getStage, renderCard, onMove, sideStages, 
   const clearSel = () => { setSel(new Set()); setMoveTo(""); };
   const exitSel = () => { setSelMode(false); clearSel(); };
   const bulkMove = (sid) => { if (!sid) return; sel.forEach((id) => onMove(id, sid)); clearSel(); };
-  const bulkDelete = () => { if (!sel.size) return; if (!confirm("Удалить выбранные карточки (" + sel.size + ")? Действие необратимо.")) return; onDelete && onDelete([...sel]); clearSel(); };
+  const bulkDelete = async () => { if (!sel.size) return; if (!(await confirmModal("Удалить выбранные карточки (" + sel.size + ")?\nДействие необратимо.", { danger: true, ok: "Удалить" }))) return; onDelete && onDelete([...sel]); clearSel(); };
   const onDrop = (sid) => (e) => {
     e.preventDefault();
     const id = e.dataTransfer.getData("id");
@@ -1908,7 +1908,7 @@ function ImportExportModal({ kind, existing, projectId, projects = [], onClose, 
       if (!data.length) return;
       const columns = Object.keys(data[0]);
       setRows(data); setCols(columns); setMap(autoMap(columns)); setResult(null);
-    } catch (err) { alert("Не удалось прочитать файл: " + err.message); }
+    } catch (err) { alertModal("Не удалось прочитать файл: " + err.message, { title: "Ошибка" }); }
   };
 
   const runImport = () => {
@@ -2270,8 +2270,8 @@ function IntegrationsPanel() {
     } catch (e) { setErr("Не удалось создать токен: " + e.message); }
     setBusy(false);
   };
-  const revoke = async (id) => { if (!confirm("Отозвать токен? Сервис сразу потеряет доступ.")) return; await integrations.revokeToken(id); await load(); };
-  const del = async (id) => { if (!confirm("Удалить токен из списка?")) return; await integrations.deleteToken(id); await load(); };
+  const revoke = async (id) => { if (!(await confirmModal("Отозвать токен? Сервис сразу потеряет доступ.", { danger: true, ok: "Отозвать" }))) return; await integrations.revokeToken(id); await load(); };
+  const del = async (id) => { if (!(await confirmModal("Удалить токен из списка?", { danger: true, ok: "Удалить" }))) return; await integrations.deleteToken(id); await load(); };
   const copy = async (text) => {
     let ok = false;
     try {
@@ -2286,7 +2286,7 @@ function IntegrationsPanel() {
       } catch { ok = false; }
     }
     if (ok) { setCopied(true); setTimeout(() => setCopied(false), 1500); }
-    else alert("Не удалось скопировать автоматически. Выделите токен мышкой и нажмите Cmd+C.");
+    else alertModal("Не удалось скопировать автоматически. Выделите токен мышкой и нажмите Cmd+C.", { title: "Копирование" });
   };
 
   const fmt = (d) => d ? new Date(d).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
@@ -2409,7 +2409,7 @@ function WebhooksPanel() {
     catch (e) { setErr("Не удалось создать подписку: " + e.message); }
     setBusy(false);
   };
-  const del = async (id) => { if (!confirm("Удалить подписку на вебхук?")) return; await integrations.deleteWebhook(id); await load(); };
+  const del = async (id) => { if (!(await confirmModal("Удалить подписку на вебхук?", { danger: true, ok: "Удалить" }))) return; await integrations.deleteWebhook(id); await load(); };
   const fmt = (d) => d ? new Date(d).toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
 
   return (
@@ -2629,7 +2629,7 @@ function CustomFieldsEditor({ company, entity, title, fields, onReload }) {
     const options = type === "select" ? opts.split(",").map((s) => s.trim()).filter(Boolean) : [];
     call((cf) => cf.add(company, entity, label.trim(), type, options, fields.length));
   };
-  const del = (f) => { if (confirm(`Удалить поле «${f.label}»?`)) call((cf) => cf.remove(f.id)); };
+  const del = async (f) => { if (await confirmModal(`Удалить поле «${f.label}»?`, { danger: true, ok: "Удалить" })) call((cf) => cf.remove(f.id)); };
 
   return (
     <Panel style={{ marginBottom: 16 }}>
@@ -2842,13 +2842,13 @@ function StagesEditor({ title, company, pipelineId, stages, onReload, allowFlags
     if (t && t.trim()) call((pe) => pe.updateStage(s.id, { title: t.trim() }));
   };
   const recolor = (s, color) => call((pe) => pe.updateStage(s.id, { color }));
-  const del = (s) => {
+  const del = async (s) => {
     const cnt = countOnStage ? countOnStage(s.id) : 0;
     if (cnt > 0) {
-      alert(`Нельзя удалить стадию «${s.title}»: на ней ${cnt} ${cnt === 1 ? "карточка" : "карточек"}. Сначала перенесите их в другую стадию.`);
+      alertModal(`Нельзя удалить стадию «${s.title}»: на ней ${cnt} ${cnt === 1 ? "карточка" : "карточек"}. Сначала перенесите их в другую стадию.`, { title: "Нельзя удалить" });
       return;
     }
-    if (!confirm(`Удалить стадию «${s.title}»?`)) return;
+    if (!(await confirmModal(`Удалить стадию «${s.title}»?`, { danger: true, ok: "Удалить" }))) return;
     call((pe) => pe.deleteStage(s.id));
   };
   const move = (idx, dir) => {
@@ -3255,7 +3255,7 @@ function CRMApp({ onSignOut }) {
   // ---------- действия: лиды ----------
   const moveLead = (id, stage) => {
     upd("leads", id, (l) => ({ ...l, stage, history: [...(l.history || []), { id: uid("act"), type: "task", title: "Перемещён → " + stageTitleById(stage), when: nowISO(), done: true, owner: l.owner }] }));
-    if (isWonStage(stage)) { const l = db.leads.find((x) => x.id === id); if (l) setConvertLead({ ...l, stage }); }
+    if (isWonStage(stage)) { const l = db.leads.find((x) => x.id === id); if (l) setOpenLead({ ...l, stage }); }
   };
   const saveLead = (l) => db.leads.some((x) => x.id === l.id) ? upd("leads", l.id, () => l) : patch({ leads: [...db.leads, l] });
   const deleteLeads = (ids) => { const s = new Set(ids); patch({ leads: db.leads.filter((l) => !s.has(l.id)) }); };
@@ -3334,10 +3334,16 @@ function CRMApp({ onSignOut }) {
   };
 
   const reset = async () => {
-    if (!confirm("Перезагрузить данные из базы?")) return;
+    if (!(await confirmModal("Перезагрузить данные из базы?"))) return;
     const fresh = await loadState();
     if (fresh) { setDb(fresh); setUserId(fresh.__me || fresh.users[0].id); }
     setActiveProject(null); setPage("settings");
+  };
+
+  // лайв-обновление данных (стадии/поля/брендинг) без перезагрузки страницы
+  const reloadData = async () => {
+    const fresh = await loadState();
+    if (fresh) setDb(fresh);
   };
 
   // экспорт лидов
@@ -3508,7 +3514,7 @@ function CRMApp({ onSignOut }) {
     customFields={db.__customFields || []} inboundToken={db.__inboundToken}
     leadsForCount={db.leads} projectsForCount={db.projects}
     fieldConfigs={db.__fieldConfigs || []}
-    onReload={() => window.location.reload()} />;
+    onReload={reloadData} />;
 
   function saveLeadUser(u) {
     db.users.some((x) => x.id === u.id) ? upd("users", u.id, () => u) : patch({ users: [...db.users, u] });
@@ -3594,7 +3600,7 @@ function ProjectsGrid({ projects, users, respondents, onOpen, onDelete }) {
                   <Badge>{p.pkg}</Badge>
                   {onDelete && (
                     <button
-                      onClick={(e) => { e.stopPropagation(); if (confirm(`Удалить проект «${p.client}»?\n\nБудут безвозвратно удалены сам проект и все его респонденты (${pr.length} шт.) вместе с заметками. Это действие нельзя отменить.`)) onDelete(p.id); }}
+                      onClick={async (e) => { e.stopPropagation(); if (await confirmModal(`Удалить проект «${p.client}»?\n\nБудут безвозвратно удалены сам проект и все его респонденты (${pr.length} шт.) вместе с заметками. Это действие нельзя отменить.`, { danger: true, ok: "Удалить" })) onDelete(p.id); }}
                       title="Удалить проект"
                       onMouseEnter={(e) => { e.currentTarget.style.color = C.red; e.currentTarget.style.borderColor = C.red; }}
                       onMouseLeave={(e) => { e.currentTarget.style.color = C.faint; e.currentTarget.style.borderColor = C.border; }}
@@ -3627,6 +3633,54 @@ function ProjectsGrid({ projects, users, respondents, onOpen, onDelete }) {
 // ============================================================================
 // Авторизация: пока нет сессии — показываем экран входа; после входа — CRM.
 // ============================================================================
+// ---------- глобальный confirm/alert по центру (вместо браузерного окна) ----------
+const __dialogSubs = new Set();
+function __openDialog(cfg) {
+  return new Promise((resolve) => {
+    const req = { ...cfg, resolve };
+    __dialogSubs.forEach((fn) => fn(req));
+  });
+}
+export function confirmModal(message, opts = {}) {
+  const { title = "Подтверждение", ok = "ОК", cancel = "Отмена", danger = false } = opts;
+  return __openDialog({ kind: "confirm", message, title, ok, cancel, danger });
+}
+export function alertModal(message, opts = {}) {
+  const { title = "Готово", ok = "ОК" } = opts;
+  return __openDialog({ kind: "alert", message, title, ok });
+}
+function DialogHost() {
+  const [req, setReq] = useState(null);
+  useEffect(() => {
+    const fn = (r) => setReq(r);
+    __dialogSubs.add(fn);
+    return () => { __dialogSubs.delete(fn); };
+  }, []);
+  if (!req) return null;
+  const close = (val) => { try { req.resolve(val); } catch {} setReq(null); };
+  return createPortal(
+    <div onClick={() => close(req.kind === "confirm" ? false : true)} style={{
+      position: "fixed", inset: 0, background: C.overlay, backdropFilter: "blur(2px)",
+      display: "flex", alignItems: "center", justifyContent: "center", zIndex: 3000, padding: 16,
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        background: C.surface, backgroundImage: C.sheen, borderRadius: 20, width: "100%", maxWidth: 420,
+        boxShadow: C.shadowLg, border: "1px solid " + C.border, overflow: "hidden", fontFamily: FONT,
+      }}>
+        <div style={{ padding: "24px 26px 18px" }}>
+          <h3 style={{ margin: "0 0 10px", fontSize: 17.5, fontWeight: 800, color: C.text }}>{req.title}</h3>
+          <div style={{ fontSize: 14, lineHeight: 1.55, color: C.muted, whiteSpace: "pre-line" }}>{req.message}</div>
+        </div>
+        <div style={{ padding: "0 26px 22px", display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          {req.kind === "confirm" && <Btn variant="ghost" onClick={() => close(false)}>{req.cancel}</Btn>}
+          <Btn variant={req.danger ? "danger" : "primary"} onClick={() => close(true)}>{req.ok}</Btn>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function AppInner() {
   const [session, setSession] = useState(undefined); // undefined = проверяем
   const [ctx, setCtx] = useState(undefined);         // контекст: профиль+компания+подписка
@@ -3664,6 +3718,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <AppInner />
+      <DialogHost />
     </ThemeProvider>
   );
 }
